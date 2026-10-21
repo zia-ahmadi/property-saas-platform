@@ -1,12 +1,9 @@
 openapi: 3.0.3
 info:
   title: Property Management SaaS API
-  description: |
+  description: >
     API-first contract for Multi-Tenant Property Leasing, Billing, and Maintenance SaaS.
-    **Rubric Alignments:**
-    - Standard 2: Versioned, paginated, filtered, RFC 7807 errors.
-    - Standard 3: Stateful workflows, Idempotent payments, Optimistic locking.
-    - Standard 7: WebFlux SSE for real-time notifications.
+    Demonstrates enterprise workflows, idempotency, and optimistic locking.
   version: 1.0.0
 
 servers:
@@ -20,131 +17,172 @@ paths:
   # --- Feature 1: Auth & Multi-tenancy ---
   /auth/login:
     post:
-      tags: [Authentication]
+      tags:
+        - Authentication
       security: [] # Public endpoint
       summary: Authenticate user and get JWT
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/LoginRequest' }
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
           description: JWT Token containing userId, tenantId, and roles
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/TokenResponse' }
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
 
   # --- Feature 2: Properties & Units ---
   /properties:
     get:
-      tags: [Properties]
+      tags:
+        - Properties
       summary: List properties with pagination and filtering
       parameters:
         - $ref: '#/components/parameters/pageParam'
         - $ref: '#/components/parameters/sizeParam'
         - name: status
           in: query
-          schema: { $ref: '#/components/schemas/PropertyStatus' }
+          schema:
+            $ref: '#/components/schemas/PropertyStatus'
       responses:
         '200':
           description: Paginated list of properties
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PageProperty' }
+              schema:
+                $ref: '#/components/schemas/PageProperty'
     post:
-      tags: [Properties]
+      tags:
+        - Properties
       summary: Create a new property
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CreatePropertyRequest' }
+            schema:
+              $ref: '#/components/schemas/CreatePropertyRequest'
       responses:
-        '201': { description: Property created }
+        '201':
+          description: Property created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
 
   # --- Feature 3: Leases (Workflow & Optimistic Locking) ---
   /leases:
     post:
-      tags: [Leases]
-      summary: Create a new lease (Initial state: DRAFT)
+      tags:
+        - Leases
+      summary: Create a new lease (Initial state DRAFT)
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CreateLeaseRequest' }
+            schema:
+              $ref: '#/components/schemas/CreateLeaseRequest'
       responses:
-        '201': { description: Lease created in DRAFT state }
+        '201':
+          description: Lease created in DRAFT state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lease'
 
   /leases/{id}/activate:
     post:
-      tags: [Leases]
-      summary: "Workflow: Transition lease from DRAFT to ACTIVE"
-      description: "Rejects if unit is not AVAILABLE. Requires optimistic lock version."
+      tags:
+        - Leases
+      summary: 'Workflow: Transition lease from DRAFT to ACTIVE'
+      description: Rejects if unit is not AVAILABLE. Requires optimistic lock version.
       parameters:
         - name: id
           in: path
           required: true
-          schema: { type: string, format: uuid }
+          schema:
+            type: string
+            format: uuid
         - name: If-Match
           in: header
           required: true
-          description: "Standard 3: Optimistic locking version to prevent competing updates"
-          schema: { type: integer }
+          description: 'Standard 3: Optimistic locking version to prevent competing updates'
+          schema:
+            type: integer
       responses:
-        '200': { description: Lease activated }
-        '409': { description: Conflict - Version mismatch or Unit not available }
-        '400': { description: Invalid workflow transition }
+        '200':
+          description: Lease activated
+        '409':
+          description: Conflict - Version mismatch or Unit not available
+        '400':
+          description: Invalid workflow transition
 
   # --- Feature 5: Payments (Idempotency) ---
   /payments:
     post:
-      tags: [Payments]
+      tags:
+        - Payments
       summary: Record a payment
-      description: "Standard 3: Requires Idempotency-Key to prevent duplicate processing."
+      description: 'Standard 3: Requires Idempotency-Key to prevent duplicate processing.'
       parameters:
         - name: Idempotency-Key
           in: header
           required: true
-          description: "Unique UUID to ensure the payment is only processed once."
-          schema: { type: string, format: uuid }
+          description: Unique UUID to ensure the payment is only processed once.
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CreatePaymentRequest' }
+            schema:
+              $ref: '#/components/schemas/CreatePaymentRequest'
       responses:
-        '201': { description: Payment recorded }
-        '200': { description: Payment already processed (Idempotent response)" }
+        '201':
+          description: Payment recorded
+        '200':
+          description: Payment already processed (Idempotent response)
 
   # --- Feature 6: Maintenance (Workflow) ---
   /maintenance-requests/{id}/assign:
     patch:
-      tags: [Maintenance]
-      summary: "Workflow: Assign vendor (SUBMITTED -> ASSIGNED)"
+      tags:
+        - Maintenance
+      summary: 'Workflow: Assign vendor (SUBMITTED -> ASSIGNED)'
       parameters:
         - name: id
           in: path
           required: true
-          schema: { type: string, format: uuid }
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
           application/json:
-            schema: 
+            schema:
               type: object
               properties:
-                vendorId: { type: string, format: uuid }
+                vendorId:
+                  type: string
+                  format: uuid
       responses:
-        '200': { description: Request assigned }
-        '400': { description: Invalid transition (e.g., already completed) }
+        '200':
+          description: Request assigned
+        '400':
+          description: Invalid transition (e.g., already completed)
 
   # --- Feature 7: WebFlux Real-time Notifications ---
   /notifications/stream:
     get:
-      tags: [Notifications]
-      summary: "Standard 7: WebFlux SSE stream for real-time alerts"
-      description: "Streams events like PAYMENT_RECEIVED, MAINTENANCE_STATUS_CHANGED."
+      tags:
+        - Notifications
+      summary: 'Standard 7: WebFlux SSE stream for real-time alerts'
+      description: 'Streams events like PAYMENT_RECEIVED, MAINTENANCE_STATUS_CHANGED.'
       responses:
         '200':
           description: Server-Sent Events stream
@@ -166,77 +204,148 @@ components:
       name: page
       in: query
       description: Zero-indexed page number
-      schema: { type: integer, default: 0 }
+      schema:
+        type: integer
+        default: 0
     sizeParam:
       name: size
       in: query
       description: Page size
-      schema: { type: integer, default: 20 }
+      schema:
+        type: integer
+        default: 20
 
   schemas:
     # Standard 2: Consistent Error Model (RFC 7807)
     ProblemDetail:
       type: object
       properties:
-        type: { type: string, format: uri }
-        title: { type: string }
-        status: { type: integer }
-        detail: { type: string }
-        instance: { type: string }
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
 
     # Pagination Wrapper
     PageProperty:
       type: object
       properties:
-        content: { type: array, items: { $ref: '#/components/schemas/Property' } }
-        totalElements: { type: integer }
-        totalPages: { type: integer }
-        number: { type: integer }
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/Property'
+        totalElements:
+          type: integer
+        totalPages:
+          type: integer
+        number:
+          type: integer
 
     LoginRequest:
       type: object
       properties:
-        email: { type: string, format: email }
-        password: { type: string, format: password }
-      required: [email, password]
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+      required:
+        - email
+        - password
 
     TokenResponse:
       type: object
       properties:
-        accessToken: { type: string }
-        expiresIn: { type: integer }
+        accessToken:
+          type: string
+        expiresIn:
+          type: integer
 
     Property:
       type: object
       properties:
-        id: { type: string, format: uuid }
-        name: { type: string }
-        address: { type: string }
-        status: { $ref: '#/components/schemas/PropertyStatus' }
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        address:
+          type: string
+        status:
+          $ref: '#/components/schemas/PropertyStatus'
 
     CreatePropertyRequest:
       type: object
       properties:
-        name: { type: string }
-        address: { type: string }
-      required: [name, address]
+        name:
+          type: string
+        address:
+          type: string
+      required:
+        - name
+        - address
+
+    Lease:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [DRAFT, ACTIVE, EXPIRED, TERMINATED]
+        version:
+          type: integer
+          description: Optimistic lock version
 
     CreateLeaseRequest:
       type: object
       properties:
-        tenantId: { type: string, format: uuid }
-        unitId: { type: string, format: uuid }
-        startDate: { type: string, format: date }
-        endDate: { type: string, format: date }
-        monthlyRent: { type: number, format: double }
+        tenantId:
+          type: string
+          format: uuid
+        unitId:
+          type: string
+          format: uuid
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        monthlyRent:
+          type: number
+          format: double
+      required:
+        - tenantId
+        - unitId
+        - startDate
+        - endDate
+        - monthlyRent
 
     CreatePaymentRequest:
       type: object
       properties:
-        invoiceId: { type: string, format: uuid }
-        amount: { type: number, format: double }
-        paymentMethod: { type: string, enum: [CREDIT_CARD, BANK_TRANSFER, CASH] }
-      required: [invoiceId, amount, paymentMethod]
+        invoiceId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          format: double
+        paymentMethod:
+          type: string
+          enum: [CREDIT_CARD, BANK_TRANSFER, CASH]
+      required:
+        - invoiceId
+        - amount
+        - paymentMethod
 
     PropertyStatus:
       type: string
