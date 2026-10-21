@@ -1,150 +1,904 @@
 openapi: 3.0.3
+
 info:
   title: Property Management SaaS API
   description: |
-    API-first contract for Multi-Tenant Property Leasing, Billing, and Maintenance SaaS.
-    **Rubric Alignments:**
-    - Standard 2: Versioned, paginated, filtered, RFC 7807 errors.
-    - Standard 3: Stateful workflows, Idempotent payments, Optimistic locking.
-    - Standard 7: WebFlux SSE for real-time notifications.
+    API-first contract for a Multi-Tenant Property Leasing, Billing, and Maintenance SaaS.
+
+    ## Architecture decisions
+    - **Tenancy**: `tenantId` is **always derived from the JWT** and is never accepted from
+      client request bodies or query parameters. Clients must not send `tenantId`.
+    - **REST vs GraphQL**: All mutations and entity CRUD are served over REST (this document).
+      The **portfolio dashboard read model** is served over GraphQL (`schema.graphqls`).
+      Do not call REST for dashboard data.
+    - **Optimistic locking**: Mutable workflow entities (`Lease`, `MaintenanceRequest`, `Invoice`)
+      expose a numeric `version` field. Clients must send `If-Match: <version>` on workflow
+      transitions. A `409 Conflict` is returned on version mismatch.
+    - **Idempotency**: `POST /payments` requires an `Idempotency-Key` header (UUID).
+      Replaying the same key returns the original result with `200` instead of `201`.
+    - **Errors**: All non-2xx responses use RFC 7807 `application/problem+json`.
+    - **Real-time**: `GET /notifications/stream` is a Server-Sent Events endpoint.
+      Frontends must use `EventSource`; proxies must not buffer `text/event-stream`.
+    - **Timestamps**: All timestamps are ISO-8601 UTC (`date-time`).
+
+    ## Pagination
+    All list endpoints accept `page` (zero-indexed) and `size` query parameters and return
+    a `Page<Entity>` wrapper with `content`, `totalElements`, `totalPages`, `number`, `size`.
   version: 1.0.0
+  contact:
+    name: Platform Team
+    email: platform@example.com
+  license:
+    name: Proprietary
 
 servers:
   - url: http://localhost:8080/api/v1
     description: Local Development
+  - url: https://api.example.com/api/v1
+    description: Production
 
 security:
   - BearerAuth: []
 
+tags:
+  - name: Authentication
+    description: Login, registration, and current-user endpoints.
+  - name: Properties
+    description: Property and unit management.
+  - name: Tenants
+    description: Tenant records.
+  - name: Leases
+    description: Lease lifecycle, renewals, and workflow transitions.
+  - name: Billing
+    description: Invoices and recurring billing.
+  - name: Payments
+    description: Payment recording with idempotency.
+  - name: Maintenance
+    description: Maintenance requests and vendor assignment workflow.
+  - name: Notifications
+    description: Real-time Server-Sent Events stream.
+
 paths:
-  # --- Feature 1: Auth & Multi-tenancy ---
-  /auth/login:
+  # ============================================================
+  # Feature 1 — Auth & Multi-tenancy
+  # ============================================================
+  /auth/register:
     post:
       tags: [Authentication]
-      security: [] # Public endpoint
-      summary: Authenticate user and get JWT
+      security: []
+      summary: Register a new organization and its admin user
+      description: |
+        Creates a new tenant (organization) and an ADMIN user bound to it.
+        Returns a JWT immediately so the client can proceed without a second login.
+      operationId: register
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/LoginRequest' }
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
       responses:
-        '200':
-          description: JWT Token containing userId, tenantId, and roles
+        '201':
+          description: Organization and admin user created
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/TokenResponse' }
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Email already registered
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
 
-  # --- Feature 2: Properties & Units ---
+  /auth/login:
+    post:
+      tags: [Authentication]
+      security: []
+      summary: Authenticate user and obtain a JWT
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: JWT issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get the currently authenticated user profile
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ============================================================
+  # Feature 2 — Properties & Units
+  # ============================================================
   /properties:
     get:
       tags: [Properties]
       summary: List properties with pagination and filtering
+      operationId: listProperties
       parameters:
-        - $ref: '#/components/parameters/pageParam'
-        - $ref: '#/components/parameters/sizeParam'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/SortParam'
         - name: status
           in: query
-          schema: { $ref: '#/components/schemas/PropertyStatus' }
+          schema:
+            $ref: '#/components/schemas/PropertyStatus'
       responses:
         '200':
           description: Paginated list of properties
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PageProperty' }
+              schema:
+                $ref: '#/components/schemas/PageProperty'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     post:
       tags: [Properties]
       summary: Create a new property
+      operationId: createProperty
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CreatePropertyRequest' }
+            schema:
+              $ref: '#/components/schemas/CreatePropertyRequest'
       responses:
-        '201': { description: Property created }
+        '201':
+          description: Property created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
-  # --- Feature 3: Leases (Workflow & Optimistic Locking) ---
+  /properties/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PropertyId'
+    get:
+      tags: [Properties]
+      summary: Get a property by id
+      operationId: getProperty
+      responses:
+        '200':
+          description: Property
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Properties]
+      summary: Update a property
+      operationId: updateProperty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePropertyRequest'
+      responses:
+        '200':
+          description: Property updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Properties]
+      summary: Delete a property
+      description: Fails with 409 if the property still has active units or leases.
+      operationId: deleteProperty
+      responses:
+        '204':
+          description: Property deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /properties/{id}/units:
+    parameters:
+      - $ref: '#/components/parameters/PropertyId'
+    get:
+      tags: [Properties]
+      summary: List units for a property
+      operationId: listUnits
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/UnitStatus'
+      responses:
+        '200':
+          description: Paginated units
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageUnit'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Properties]
+      summary: Add a unit to a property
+      operationId: createUnit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUnitRequest'
+      responses:
+        '201':
+          description: Unit created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Unit'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /units/{unitId}:
+    parameters:
+      - $ref: '#/components/parameters/UnitId'
+    get:
+      tags: [Properties]
+      summary: Get a unit by id
+      operationId: getUnit
+      responses:
+        '200':
+          description: Unit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Unit'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Properties]
+      summary: Update a unit
+      operationId: updateUnit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUnitRequest'
+      responses:
+        '200':
+          description: Unit updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Unit'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # Feature 3 — Tenants
+  # ============================================================
+  /tenants:
+    get:
+      tags: [Tenants]
+      summary: List tenants
+      operationId: listTenants
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: q
+          in: query
+          description: Free-text search on name/email
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated tenants
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageTenant'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Tenants]
+      summary: Create a tenant record
+      operationId: createTenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTenantRequest'
+      responses:
+        '201':
+          description: Tenant created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /tenants/{tenantId}:
+    parameters:
+      - $ref: '#/components/parameters/TenantId'
+    get:
+      tags: [Tenants]
+      summary: Get a tenant by id
+      operationId: getTenant
+      responses:
+        '200':
+          description: Tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Tenants]
+      summary: Update a tenant
+      operationId: updateTenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTenantRequest'
+      responses:
+        '200':
+          description: Tenant updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # Feature 3 — Leases (Workflow & Optimistic Locking)
+  # ============================================================
   /leases:
+    get:
+      tags: [Leases]
+      summary: List leases with filters
+      operationId: listLeases
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/LeaseStatus'
+        - name: tenantId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: unitId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Paginated leases
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageLease'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
     post:
       tags: [Leases]
-      summary: "Create a new lease (Initial state: DRAFT)"
+      summary: Create a new lease (initial state DRAFT)
+      operationId: createLease
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CreateLeaseRequest' }
+            schema:
+              $ref: '#/components/schemas/CreateLeaseRequest'
       responses:
-        '201': { description: Lease created in DRAFT state }
+        '201':
+          description: Lease created in DRAFT state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lease'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Unit already has an active or draft lease
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /leases/{id}:
+    parameters:
+      - $ref: '#/components/parameters/LeaseId'
+    get:
+      tags: [Leases]
+      summary: Get a lease by id
+      operationId: getLease
+      responses:
+        '200':
+          description: Lease
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lease'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /leases/{id}/activate:
+    parameters:
+      - $ref: '#/components/parameters/LeaseId'
+      - $ref: '#/components/parameters/IfMatch'
     post:
       tags: [Leases]
-      summary: "Workflow: Transition lease from DRAFT to ACTIVE"
-      description: "Rejects if unit is not AVAILABLE. Requires optimistic lock version."
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-        - name: If-Match
-          in: header
-          required: true
-          description: "Standard 3: Optimistic locking version to prevent competing updates"
-          schema: { type: integer }
+      summary: 'Workflow: DRAFT → ACTIVE'
+      description: |
+        Rejects if the unit is not AVAILABLE. Requires optimistic lock version via
+        `If-Match`. On success, the returned lease has an incremented `version`.
+      operationId: activateLease
       responses:
-        '200': { description: Lease activated }
-        '409': { description: Conflict - Version mismatch or Unit not available }
-        '400': { description: Invalid workflow transition }
+        '200':
+          description: Lease activated (returns updated lease with new version)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lease'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Conflict — version mismatch or unit not available
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
 
-  # --- Feature 5: Payments (Idempotency) ---
+  /leases/{id}/terminate:
+    parameters:
+      - $ref: '#/components/parameters/LeaseId'
+      - $ref: '#/components/parameters/IfMatch'
+    post:
+      tags: [Leases]
+      summary: 'Workflow: ACTIVE → TERMINATED'
+      operationId: terminateLease
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TerminateLeaseRequest'
+      responses:
+        '200':
+          description: Lease terminated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lease'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+
+  /leases/{id}/renew:
+    parameters:
+      - $ref: '#/components/parameters/LeaseId'
+      - $ref: '#/components/parameters/IfMatch'
+    post:
+      tags: [Leases]
+      summary: 'Workflow: Renew an ACTIVE lease into a new DRAFT lease'
+      description: |
+        Creates a follow-on lease in DRAFT state linked to the same tenant/unit
+        with an updated rent and term. The original lease remains ACTIVE until
+        the new lease is activated.
+      operationId: renewLease
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenewLeaseRequest'
+      responses:
+        '201':
+          description: Renewal lease created in DRAFT state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lease'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+
+  # ============================================================
+  # Feature 4 — Automated Billing (Invoices)
+  # ============================================================
+  /invoices:
+    get:
+      tags: [Billing]
+      summary: List invoices
+      operationId: listInvoices
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/InvoiceStatus'
+        - name: leaseId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: overdueOnly
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Paginated invoices
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageInvoice'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Billing]
+      summary: Create a one-off invoice
+      description: |
+        Recurring invoices are generated by a scheduled job; this endpoint is for
+        ad-hoc/manual invoices. Due date must be in the future.
+      operationId: createInvoice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInvoiceRequest'
+      responses:
+        '201':
+          description: Invoice created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /invoices/{invoiceId}:
+    parameters:
+      - $ref: '#/components/parameters/InvoiceId'
+    get:
+      tags: [Billing]
+      summary: Get an invoice by id
+      operationId: getInvoice
+      responses:
+        '200':
+          description: Invoice
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /invoices/{invoiceId}/payments:
+    parameters:
+      - $ref: '#/components/parameters/InvoiceId'
+    get:
+      tags: [Billing]
+      summary: List payments applied to an invoice
+      operationId: listInvoicePayments
+      responses:
+        '200':
+          description: Payments for the invoice
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Payment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # Feature 5 — Payments (Idempotency)
+  # ============================================================
   /payments:
     post:
       tags: [Payments]
       summary: Record a payment
-      description: "Standard 3: Requires Idempotency-Key to prevent duplicate processing."
+      description: |
+        Requires `Idempotency-Key`. Replaying the same key returns the original
+        payment with `200` instead of `201`.
+      operationId: recordPayment
       parameters:
-        - name: Idempotency-Key
-          in: header
-          required: true
-          description: "Unique UUID to ensure the payment is only processed once."
-          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CreatePaymentRequest' }
+            schema:
+              $ref: '#/components/schemas/CreatePaymentRequest'
       responses:
-        '201': { description: Payment recorded }
-        '200': { description: Payment already processed (Idempotent response)" }
+        '201':
+          description: Payment recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '200':
+          description: Idempotent replay — payment already processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Idempotency key reused with a different payload
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '422':
+          description: Payment exceeds outstanding invoice balance
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
 
-  # --- Feature 6: Maintenance (Workflow) ---
+  /payments/{paymentId}:
+    parameters:
+      - $ref: '#/components/parameters/PaymentId'
+    get:
+      tags: [Payments]
+      summary: Get a payment by id
+      operationId: getPayment
+      responses:
+        '200':
+          description: Payment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # Feature 6 — Maintenance (Workflow)
+  # ============================================================
+  /maintenance-requests:
+    get:
+      tags: [Maintenance]
+      summary: List maintenance requests
+      operationId: listMaintenanceRequests
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/MaintenanceStatus'
+        - name: priority
+          in: query
+          schema:
+            $ref: '#/components/schemas/Priority'
+      responses:
+        '200':
+          description: Paginated maintenance requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageMaintenanceRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Maintenance]
+      summary: Submit a maintenance request (initial state SUBMITTED)
+      operationId: submitMaintenanceRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMaintenanceRequest'
+      responses:
+        '201':
+          description: Maintenance request submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceRequest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /maintenance-requests/{id}:
+    parameters:
+      - $ref: '#/components/parameters/MaintenanceId'
+    get:
+      tags: [Maintenance]
+      summary: Get a maintenance request by id
+      operationId: getMaintenanceRequest
+      responses:
+        '200':
+          description: Maintenance request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /maintenance-requests/{id}/assign:
+    parameters:
+      - $ref: '#/components/parameters/MaintenanceId'
+      - $ref: '#/components/parameters/IfMatch'
     patch:
       tags: [Maintenance]
-      summary: "Workflow: Assign vendor (SUBMITTED -> ASSIGNED)"
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
+      summary: 'Workflow: SUBMITTED → ASSIGNED'
+      operationId: assignMaintenanceRequest
       requestBody:
         required: true
         content:
           application/json:
-            schema: 
-              type: object
-              properties:
-                vendorId: { type: string, format: uuid }
+            schema:
+              $ref: '#/components/schemas/AssignMaintenanceRequest'
       responses:
-        '200': { description: Request assigned }
-        '400': { description: Invalid transition (e.g., already completed) }
+        '200':
+          description: Request assigned (returns updated entity with new version)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceRequest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
 
-  # --- Feature 7: WebFlux Real-time Notifications ---
+  /maintenance-requests/{id}/start:
+    parameters:
+      - $ref: '#/components/parameters/MaintenanceId'
+      - $ref: '#/components/parameters/IfMatch'
+    post:
+      tags: [Maintenance]
+      summary: 'Workflow: ASSIGNED → IN_PROGRESS'
+      operationId: startMaintenanceRequest
+      responses:
+        '200':
+          description: Request moved to IN_PROGRESS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+
+  /maintenance-requests/{id}/resolve:
+    parameters:
+      - $ref: '#/components/parameters/MaintenanceId'
+      - $ref: '#/components/parameters/IfMatch'
+    post:
+      tags: [Maintenance]
+      summary: 'Workflow: IN_PROGRESS → RESOLVED'
+      operationId: resolveMaintenanceRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveMaintenanceRequest'
+      responses:
+        '200':
+          description: Request resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+
+  # ============================================================
+  # Feature 7 — Real-time Notifications (SSE)
+  # ============================================================
   /notifications/stream:
     get:
       tags: [Notifications]
-      summary: "Standard 7: WebFlux SSE stream for real-time alerts"
-      description: "Streams events like PAYMENT_RECEIVED, MAINTENANCE_STATUS_CHANGED."
+      summary: SSE stream for real-time alerts
+      description: |
+        Streams events such as `PAYMENT_RECEIVED`, `MAINTENANCE_STATUS_CHANGED`,
+        `LEASE_ACTIVATED`. Each SSE message has `event:` set to the event type and
+        `data:` containing a JSON payload. Clients use `EventSource`.
+      operationId: streamNotifications
       responses:
         '200':
           description: Server-Sent Events stream
@@ -152,92 +906,818 @@ paths:
             text/event-stream:
               schema:
                 type: string
-                description: 'Event data (e.g., {"type": "PAYMENT_RECEIVED", "payload": {...}})'
+                description: |
+                  SSE frames. Example:
+                  event: PAYMENT_RECEIVED
+                  data: {"paymentId":"...","invoiceId":"...","amount":1200.00}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
+# ================================================================
+# Components
+# ================================================================
 components:
   securitySchemes:
     BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: |
+        JWT issued by `/auth/login` or `/auth/register`. The token encodes
+        `userId`, `tenantId`, and `roles`. The server derives `tenantId` from
+        this token on every request.
 
   parameters:
-    pageParam:
+    PageParam:
       name: page
       in: query
       description: Zero-indexed page number
-      schema: { type: integer, default: 0 }
-    sizeParam:
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    SizeParam:
       name: size
       in: query
-      description: Page size
-      schema: { type: integer, default: 20 }
+      description: Page size (1–100)
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    SortParam:
+      name: sort
+      in: query
+      description: 'Sort expression, e.g. `createdAt,desc`'
+      schema:
+        type: string
+        example: createdAt,desc
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: |
+        Optimistic locking version. Send the entity's current `version`
+        **as a plain integer** (e.g. `If-Match: 3`). A mismatch returns
+        `409 Conflict` or `412 Precondition Failed`.
+      schema:
+        type: integer
+        minimum: 0
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Client-generated UUID. A request replayed with the same key and same
+        payload returns the original response with `200`. Reuse with a different
+        payload returns `409`.
+      schema:
+        type: string
+        format: uuid
+    PropertyId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UnitId:
+      name: unitId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TenantId:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    LeaseId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    InvoiceId:
+      name: invoiceId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PaymentId:
+      name: paymentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MaintenanceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Invalid request payload or parameters
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    Forbidden:
+      description: Authenticated but not permitted
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    NotFound:
+      description: Resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    Conflict:
+      description: State conflict or version mismatch
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+    PreconditionFailed:
+      description: If-Match version does not match current version
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
 
   schemas:
-    # Standard 2: Consistent Error Model (RFC 7807)
+    # ---------------- Common ----------------
     ProblemDetail:
       type: object
+      description: RFC 7807 problem details
       properties:
-        type: { type: string, format: uri }
-        title: { type: string }
-        status: { type: integer }
-        detail: { type: string }
-        instance: { type: string }
+        type:
+          type: string
+          format: uri
+          example: https://api.example.com/problems/conflict
+        title:
+          type: string
+          example: Conflict
+        status:
+          type: integer
+          example: 409
+        detail:
+          type: string
+          example: Lease version 3 does not match current version 4
+        instance:
+          type: string
+          format: uri
+          example: /api/v1/leases/11111111-1111-1111-1111-111111111111/activate
+        traceId:
+          type: string
+          description: Zipkin trace id for correlation
+        errors:
+          type: array
+          description: Field-level validation errors (for 400 responses)
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
 
-    # Pagination Wrapper
-    PageProperty:
+    # ---------------- Auth ----------------
+    Role:
+      type: string
+      enum: [ADMIN, MANAGER, TENANT]
+
+    RegisterRequest:
       type: object
+      required: [organizationName, email, password, fullName]
       properties:
-        content: { type: array, items: { $ref: '#/components/schemas/Property' } }
-        totalElements: { type: integer }
-        totalPages: { type: integer }
-        number: { type: integer }
+        organizationName:
+          type: string
+          minLength: 2
+          maxLength: 120
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 8
+        fullName:
+          type: string
+          minLength: 1
+          maxLength: 120
 
     LoginRequest:
       type: object
-      properties:
-        email: { type: string, format: email }
-        password: { type: string, format: password }
       required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
 
     TokenResponse:
       type: object
+      required: [accessToken, expiresIn, userId, tenantId, roles]
       properties:
-        accessToken: { type: string }
-        expiresIn: { type: integer }
+        accessToken:
+          type: string
+        expiresIn:
+          type: integer
+          description: Seconds until expiry
+          example: 3600
+        userId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
 
-    Property:
+    CurrentUser:
       type: object
+      required: [userId, tenantId, email, fullName, roles]
       properties:
-        id: { type: string, format: uuid }
-        name: { type: string }
-        address: { type: string }
-        status: { $ref: '#/components/schemas/PropertyStatus' }
+        userId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        fullName:
+          type: string
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
 
-    CreatePropertyRequest:
-      type: object
-      properties:
-        name: { type: string }
-        address: { type: string }
-      required: [name, address]
-
-    CreateLeaseRequest:
-      type: object
-      properties:
-        tenantId: { type: string, format: uuid }
-        unitId: { type: string, format: uuid }
-        startDate: { type: string, format: date }
-        endDate: { type: string, format: date }
-        monthlyRent: { type: number, format: double }
-
-    CreatePaymentRequest:
-      type: object
-      properties:
-        invoiceId: { type: string, format: uuid }
-        amount: { type: number, format: double }
-        paymentMethod: { type: string, enum: [CREDIT_CARD, BANK_TRANSFER, CASH] }
-      required: [invoiceId, amount, paymentMethod]
-
+    # ---------------- Property / Unit ----------------
     PropertyStatus:
       type: string
       enum: [ACTIVE, INACTIVE]
+
+    UnitStatus:
+      type: string
+      enum: [AVAILABLE, OCCUPIED, MAINTENANCE]
+
+    Property:
+      type: object
+      required: [id, name, address, status, unitCount, occupiedUnits, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        address:
+          type: string
+        status:
+          $ref: '#/components/schemas/PropertyStatus'
+        unitCount:
+          type: integer
+          description: Total units in this property
+        occupiedUnits:
+          type: integer
+          description: Units currently OCCUPIED
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreatePropertyRequest:
+      type: object
+      required: [name, address]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        address:
+          type: string
+          minLength: 1
+          maxLength: 500
+
+    UpdatePropertyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        address:
+          type: string
+          minLength: 1
+          maxLength: 500
+        status:
+          $ref: '#/components/schemas/PropertyStatus'
+
+    Unit:
+      type: object
+      required: [id, propertyId, name, status, monthlyRent, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        propertyId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Unit 4B
+        status:
+          $ref: '#/components/schemas/UnitStatus'
+        bedrooms:
+          type: integer
+          minimum: 0
+        bathrooms:
+          type: number
+          format: double
+          minimum: 0
+        monthlyRent:
+          type: number
+          format: double
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateUnitRequest:
+      type: object
+      required: [name, monthlyRent]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        bedrooms:
+          type: integer
+          minimum: 0
+        bathrooms:
+          type: number
+          format: double
+          minimum: 0
+        monthlyRent:
+          type: number
+          format: double
+          minimum: 0
+
+    UpdateUnitRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        status:
+          $ref: '#/components/schemas/UnitStatus'
+        bedrooms:
+          type: integer
+          minimum: 0
+        bathrooms:
+          type: number
+          format: double
+          minimum: 0
+        monthlyRent:
+          type: number
+          format: double
+          minimum: 0
+
+    # ---------------- Tenant ----------------
+    Tenant:
+      type: object
+      required: [id, fullName, email, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateTenantRequest:
+      type: object
+      required: [fullName, email]
+      properties:
+        fullName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          maxLength: 40
+
+    UpdateTenantRequest:
+      type: object
+      properties:
+        fullName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          maxLength: 40
+
+    # ---------------- Lease ----------------
+    LeaseStatus:
+      type: string
+      enum: [DRAFT, ACTIVE, EXPIRED, TERMINATED]
+
+    Lease:
+      type: object
+      required:
+        [id, tenantId, unitId, status, version, startDate, endDate, monthlyRent, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        unitId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/LeaseStatus'
+        version:
+          type: integer
+          description: Optimistic lock version
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        monthlyRent:
+          type: number
+          format: double
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateLeaseRequest:
+      type: object
+      required: [tenantId, unitId, startDate, endDate, monthlyRent]
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        unitId:
+          type: string
+          format: uuid
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        monthlyRent:
+          type: number
+          format: double
+          minimum: 0
+
+    TerminateLeaseRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+
+    RenewLeaseRequest:
+      type: object
+      required: [startDate, endDate, monthlyRent]
+      properties:
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        monthlyRent:
+          type: number
+          format: double
+          minimum: 0
+
+    # ---------------- Invoice ----------------
+    InvoiceStatus:
+      type: string
+      enum: [DRAFT, ISSUED, PAID, OVERDUE, CANCELLED]
+
+    Invoice:
+      type: object
+      required: [id, leaseId, tenantId, amount, dueDate, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        leaseId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          format: double
+          minimum: 0
+        dueDate:
+          type: string
+          format: date
+        status:
+          $ref: '#/components/schemas/InvoiceStatus'
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateInvoiceRequest:
+      type: object
+      required: [leaseId, amount, dueDate]
+      properties:
+        leaseId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          format: double
+          minimum: 0
+        dueDate:
+          type: string
+          format: date
+
+    # ---------------- Payment ----------------
+    PaymentMethod:
+      type: string
+      enum: [CREDIT_CARD, BANK_TRANSFER, CASH]
+
+    PaymentStatus:
+      type: string
+      enum: [PENDING, COMPLETED, FAILED, REFUNDED]
+
+    Payment:
+      type: object
+      required: [id, invoiceId, amount, paymentMethod, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        invoiceId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          format: double
+          minimum: 0
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        createdAt:
+          type: string
+          format: date-time
+
+    CreatePaymentRequest:
+      type: object
+      required: [invoiceId, amount, paymentMethod]
+      properties:
+        invoiceId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+
+    # ---------------- Maintenance ----------------
+    Priority:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, EMERGENCY]
+
+    MaintenanceStatus:
+      type: string
+      enum: [SUBMITTED, ASSIGNED, IN_PROGRESS, RESOLVED]
+
+    MaintenanceRequest:
+      type: object
+      required:
+        [id, unitId, tenantId, description, priority, status, version, requestedDate, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        unitId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        description:
+          type: string
+        priority:
+          $ref: '#/components/schemas/Priority'
+        status:
+          $ref: '#/components/schemas/MaintenanceStatus'
+        version:
+          type: integer
+          description: Optimistic lock version
+        vendorId:
+          type: string
+          format: uuid
+          nullable: true
+        requestedDate:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateMaintenanceRequest:
+      type: object
+      required: [unitId, description, priority]
+      properties:
+        unitId:
+          type: string
+          format: uuid
+        description:
+          type: string
+          minLength: 5
+          maxLength: 2000
+        priority:
+          $ref: '#/components/schemas/Priority'
+
+    AssignMaintenanceRequest:
+      type: object
+      required: [vendorId]
+      properties:
+        vendorId:
+          type: string
+          format: uuid
+
+    ResolveMaintenanceRequest:
+      type: object
+      properties:
+        resolutionNotes:
+          type: string
+          maxLength: 2000
+
+    # ---------------- Pagination wrappers ----------------
+    PageProperty:
+      type: object
+      required: [content, totalElements, totalPages, number, size]
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/Property'
+        totalElements:
+          type: integer
+        totalPages:
+          type: integer
+        number:
+          type: integer
+        size:
+          type: integer
+
+    PageUnit:
+      type: object
+      required: [content, totalElements, totalPages, number, size]
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/Unit'
+        totalElements:
+          type: integer
+        totalPages:
+          type: integer
+        number:
+          type: integer
+        size:
+          type: integer
+
+    PageTenant:
+      type: object
+      required: [content, totalElements, totalPages, number, size]
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tenant'
+        totalElements:
+          type: integer
+        totalPages:
+          type: integer
+        number:
+          type: integer
+        size:
+          type: integer
+
+    PageLease:
+      type: object
+      required: [content, totalElements, totalPages, number, size]
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/Lease'
+        totalElements:
+          type: integer
+        totalPages:
+          type: integer
+        number:
+          type: integer
+        size:
+          type: integer
+
+    PageInvoice:
+      type: object
+      required: [content, totalElements, totalPages, number, size]
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/Invoice'
+        totalElements:
+          type: integer
+        totalPages:
+          type: integer
+        number:
+          type: integer
+        size:
+          type: integer
+
+    PageMaintenanceRequest:
+      type: object
+      required: [content, totalElements, totalPages, number, size]
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceRequest'
+        totalElements:
+          type: integer
+        totalPages:
+          type: integer
+        number:
+          type: integer
+        size:
+          type: integer

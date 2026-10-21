@@ -1,35 +1,71 @@
+"""
+Dashboard read model for the Property Management SaaS.
+
+This schema is intentionally small: it serves the portfolio dashboard for the
+currently authenticated tenant. All mutations and entity CRUD are served over
+REST (see `api-contracts/rest/openapi.yaml`).
+
+Multi-tenancy: the `tenantId` in `PortfolioDashboard` is derived from the JWT.
+Clients never pass a tenant id.
+"""
 type Query {
   """
   Fetches the complete portfolio dashboard for the currently authenticated tenant.
   """
   portfolioDashboard: PortfolioDashboard!
+
+  """
+  Returns active maintenance alerts requiring attention, optionally filtered by
+  status and priority.
+  """
+  maintenanceAlerts(
+    status: MaintenanceStatus
+    priority: Priority
+  ): [MaintenanceAlert!]!
 }
 
+"""
+Aggregated read model rendered on the tenant's dashboard.
+"""
 type PortfolioDashboard {
+  "The tenant (organization) this dashboard belongs to. Derived from the JWT."
   tenantId: ID!
+
+  "Total number of properties owned by the tenant."
   totalProperties: Int!
-  
-  """
-  Calculated occupancy rate across all units (0.0 to 1.0)
-  """
+
+  "Total number of units across all properties."
+  totalUnits: Int!
+
+  "Number of units currently OCCUPIED."
+  occupiedUnits: Int!
+
+  "Occupancy rate across all units. Range 0.0 to 1.0."
   occupancyRate: Float!
-  
-  """
-  Sum of all overdue and due invoices
-  """
+
+  "Sum of all outstanding (ISSUED + OVERDUE) invoice amounts."
   totalOutstandingAmount: Float!
-  
-  """
-  Active maintenance requests requiring attention
-  """
+
+  "Number of invoices currently in OVERDUE status."
+  overdueInvoiceCount: Int!
+
+  "Active maintenance requests requiring attention (not RESOLVED)."
   activeMaintenanceRequests: [MaintenanceAlert!]!
+
+  "When this dashboard snapshot was computed."
+  generatedAt: String!
 }
 
+"""
+Lightweight maintenance summary embedded in the dashboard.
+"""
 type MaintenanceAlert {
   id: ID!
   priority: Priority!
   status: MaintenanceStatus!
   unitName: String!
+  propertyName: String!
+  description: String!
   requestedDate: String!
 }
 
