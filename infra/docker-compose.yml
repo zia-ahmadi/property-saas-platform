@@ -1,20 +1,26 @@
-version: '3.8'
 services:
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin
-      POSTGRES_DB: property_db
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin}
+      POSTGRES_DB: ${POSTGRES_DB:-property_db}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-property_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
-  zipkin: # For distributed tracing (Standard #10)
-    image: openzipkin/zipkin
+  zipkin:
+    image: openzipkin/zipkin:3
     ports:
       - "9411:9411"
+    restart: unless-stopped
 
 volumes:
   postgres_data:
