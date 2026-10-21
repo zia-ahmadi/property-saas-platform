@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<parent>
 		<groupId>org.springframework.boot</groupId>
@@ -28,8 +28,16 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
+		<logback.version>1.6.3</logback.version>
+		<!-- Spring Boot 4.1.1 manages Jackson 3 through jackson-bom.version -->
+		<jackson-bom.version>3.1.7</jackson-bom.version>
+		<!-- Override the embedded Tomcat version -->
+		<tomcat.version>11.0.26</tomcat.version>
+		<!-- Override the PostgreSQL JDBC driver version -->
+		<postgresql.version>42.7.14</postgresql.version>
 	</properties>
 	<dependencies>
+
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
@@ -117,6 +125,11 @@
 			<artifactId>spring-boot-starter-webmvc-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<dependency>
+			<groupId>org.ow2.asm</groupId>
+			<artifactId>asm</artifactId>
+			<version>9.11.1</version>
+		</dependency>
 	</dependencies>
 
 	<build>
@@ -157,6 +170,22 @@
 									<artifactId>lombok</artifactId>
 								</path>
 							</annotationProcessorPaths>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.openapitools</groupId>
+				<artifactId>openapi-generator-maven-plugin</artifactId>
+				<version>7.19.0</version>
+				<executions>
+					<execution>
+						<goals>
+							<goal>generate</goal>
+						</goals>
+						<configuration>
+							<inputSpec>${project.basedir}/../../api-contracts/rest/openapi.yaml</inputSpec>
+							<generatorName>spring</generatorName>
 						</configuration>
 					</execution>
 				</executions>
