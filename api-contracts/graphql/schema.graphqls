@@ -1,0 +1,48 @@
+type Query {
+  """
+  Fetches the complete portfolio dashboard for the currently authenticated tenant.
+  """
+  portfolioDashboard: PortfolioDashboard!
+}
+
+type PortfolioDashboard {
+  tenantId: ID!
+  totalProperties: Int!
+  
+  """
+  Calculated occupancy rate across all units (0.0 to 1.0)
+  """
+  occupancyRate: Float!
+  
+  """
+  Sum of all overdue and due invoices
+  """
+  totalOutstandingAmount: Float!
+  
+  """
+  Active maintenance requests requiring attention
+  """
+  activeMaintenanceRequests: [MaintenanceAlert!]!
+}
+
+type MaintenanceAlert {
+  id: ID!
+  priority: Priority!
+  status: MaintenanceStatus!
+  unitName: String!
+  requestedDate: String!
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  EMERGENCY
+}
+
+enum MaintenanceStatus {
+  SUBMITTED
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+}
