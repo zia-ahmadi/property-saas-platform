@@ -19,57 +19,102 @@ public class PropertyRepository extends TenantScopedRepository {
 
     /**
      * Find a property by ID, scoped to the current organization.
+     * Includes computed unitCount and occupiedUnits.
      */
     public Optional<Property> findById(UUID id) {
         UUID orgId = currentOrganizationId();
         return jdbcClient.sql("""
-                SELECT id, organization_id, name, address, status, created_at, updated_at
-                FROM properties
-                WHERE id = :id AND organization_id = :organizationId
+                SELECT p.id, p.name, p.address, p.status, p.created_at, p.updated_at,
+                       COALESCE(COUNT(DISTINCT u.id), 0) as unit_count,
+                       COALESCE(COUNT(DISTINCT CASE WHEN u.status = 'OCCUPIED' THEN u.id END), 0) as occupied_units
+                FROM properties p
+                LEFT JOIN units u ON p.id = u.property_id AND p.organization_id = u.organization_id
+                WHERE p.id = :id AND p.organization_id = :organizationId
+                GROUP BY p.id, p.name, p.address, p.status, p.created_at, p.updated_at
                 """)
                 .param("id", id)
                 .param("organizationId", orgId)
                 .query((resultSet, rowNumber) -> new Property(
                         resultSet.getObject("id", UUID.class),
-                        resultSet.getObject("organization_id", UUID.class),
                         resultSet.getString("name"),
                         resultSet.getString("address"),
                         resultSet.getString("status"),
+                        resultSet.getInt("unit_count"),
+                        resultSet.getInt("occupied_units"),
                         resultSet.getObject("created_at", Instant.class),
                         resultSet.getObject("updated_at", Instant.class)))
                 .optional();
     }
 
     /**
-     * Find all properties for the current organization.
+     * Find all properties for the current organization with pagination.
+     * Includes computed unitCount and occupiedUnits.
      */
-    public List<Property> findAll() {
+    public List<Property> findAll(int page, int size, String sort, String status) {
         UUID orgId = currentOrganizationId();
-        return jdbcClient.sql("""
-                SELECT id, organization_id, name, address, status, created_at, updated_at
-                FROM properties
-                WHERE organization_id = :organizationId
-                ORDER BY name
-                """)
+        int offset = page * size;
+
+        String sql = """
+                SELECT p.id, p.name, p.address, p.status, p.created_at, p.updated_at,
+                       COALESCE(COUNT(DISTINCT u.id), 0) as unit_count,
+                       COALESCE(COUNT(DISTINCT CASE WHEN u.status = 'OCCUPIED' THEN u.id END), 0) as occupied_units
+                FROM properties p
+                LEFT JOIN units u ON p.id = u.property_id AND p.organization_id = u.organization_id
+                WHERE p.organization_id = :organizationId
+                """;
+
+        if (status != null && !status.isEmpty()) {
+            sql += " AND p.status = :status";
+        }
+
+        sql += " GROUP BY p.id, p.name, p.address, p.status, p.created_at, p.updated_at";
+
+        // Handle sorting
+        if (sort != null && !sort.isEmpty()) {
+            String[] sortParts = sort.split(",");
+            String sortField = sortParts[0].trim();
+            String direction = sortParts.length > 1 && sortParts[1].trim().equalsIgnoreCase("desc") ? "DESC" : "ASC";
+            
+            // Validate sort field to prevent SQL injection
+            if (sortField.matches("^[a-zA-Z_]+$")) {
+                sql += " ORDER BY p." + sortField + " " + direction;
+            } else {
+                sql += " ORDER BY p.name ASC";
+            }
+        } else {
+            sql += " ORDER BY p.name ASC";
+        }
+
+        sql += " LIMIT :size OFFSET :offset";
+
+        var query = jdbcClient.sql(sql)
                 .param("organizationId", orgId)
-                .query((resultSet, rowNumber) -> new Property(
-                        resultSet.getObject("id", UUID.class),
-                        resultSet.getObject("organization_id", UUID.class),
-                        resultSet.getString("name"),
-                        resultSet.getString("address"),
-                        resultSet.getString("status"),
-                        resultSet.getObject("created_at", Instant.class),
-                        resultSet.getObject("updated_at", Instant.class)))
+                .param("size", size)
+                .param("offset", offset);
+
+        if (status != null && !status.isEmpty()) {
+            query = query.param("status", status);
+        }
+
+        return query.query((resultSet, rowNumber) -> new Property(
+                resultSet.getObject("id", UUID.class),
+                resultSet.getString("name"),
+                resultSet.getString("address"),
+                resultSet.getString("status"),
+                resultSet.getInt("unit_count"),
+                resultSet.getInt("occupied_units"),
+                resultSet.getObject("created_at", Instant.class),
+                resultSet.getObject("updated_at", Instant.class)))
                 .list();
     }
 
     /**
-     * Find all properties for the current organization, optionally filtered by status.
+     * Count total properties for the current organization, optionally filtered by status.
      */
-    public List<Property> findAll(String status) {
+    public long count(String status) {
         UUID orgId = currentOrganizationId();
         String sql = """
-                SELECT id, organization_id, name, address, status, created_at, updated_at
+                SELECT COUNT(*)
                 FROM properties
                 WHERE organization_id = :organizationId
                 """;
@@ -78,22 +123,50 @@ public class PropertyRepository extends TenantScopedRepository {
             sql += " AND status = :status";
         }
 
-        sql += " ORDER BY name";
-
         var query = jdbcClient.sql(sql).param("organizationId", orgId);
         if (status != null && !status.isEmpty()) {
             query = query.param("status", status);
         }
 
-        return query.query((resultSet, rowNumber) -> new Property(
-                resultSet.getObject("id", UUID.class),
-                resultSet.getObject("organization_id", UUID.class),
-                resultSet.getString("name"),
-                resultSet.getString("address"),
-                resultSet.getString("status"),
-                resultSet.getObject("created_at", Instant.class),
-                resultSet.getObject("updated_at", Instant.class)))
-                .list();
+        return query.query(Long.class).single();
+    }
+
+    /**
+     * Check if a property has active units or leases.
+     * Returns true if the property has units that are OCCUPIED or has active leases.
+     */
+    public boolean hasActiveDependencies(UUID id) {
+        UUID orgId = currentOrganizationId();
+        
+        // Check for occupied units
+        Integer occupiedUnits = jdbcClient.sql("""
+                SELECT COUNT(*)
+                FROM units
+                WHERE property_id = :id AND organization_id = :organizationId AND status = 'OCCUPIED'
+                """)
+                .param("id", id)
+                .param("organizationId", orgId)
+                .query(Integer.class)
+                .single();
+        
+        if (occupiedUnits != null && occupiedUnits > 0) {
+            return true;
+        }
+
+        // Check for active leases
+        Integer activeLeases = jdbcClient.sql("""
+                SELECT COUNT(*)
+                FROM leases
+                WHERE unit_id IN (
+                    SELECT id FROM units WHERE property_id = :id AND organization_id = :organizationId
+                ) AND organization_id = :organizationId AND status = 'ACTIVE'
+                """)
+                .param("id", id)
+                .param("organizationId", orgId)
+                .query(Integer.class)
+                .single();
+        
+        return activeLeases != null && activeLeases > 0;
     }
 
     /**

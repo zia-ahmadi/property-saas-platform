@@ -1,11 +1,12 @@
 package com.example.property_core.property;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.example.property_core.common.Page;
 
 @Service
 public class PropertyService {
@@ -17,17 +18,13 @@ public class PropertyService {
     }
 
     /**
-     * Get all properties for the current organization.
+     * Get paginated properties for the current organization.
      */
-    public List<Property> getAllProperties() {
-        return propertyRepository.findAll();
-    }
-
-    /**
-     * Get all properties for the current organization, optionally filtered by status.
-     */
-    public List<Property> getAllProperties(String status) {
-        return propertyRepository.findAll(status);
+    public Page<Property> getProperties(int page, int size, String sort, String status) {
+        List<Property> properties = propertyRepository.findAll(page, size, sort, status);
+        long totalElements = propertyRepository.count(status);
+        int totalPages = (int) Math.ceil((double) totalElements / size);
+        return new Page<>(properties, page, size, totalElements, totalPages);
     }
 
     /**
@@ -44,10 +41,9 @@ public class PropertyService {
      * @throws IllegalArgumentException if validation fails
      */
     @Transactional
-    public Property createProperty(String name, String address, PropertyStatus status) {
+    public Property createProperty(String name, String address) {
         validatePropertyData(name, address);
-        String statusValue = status != null ? status.name() : PropertyStatus.ACTIVE.name();
-        return propertyRepository.create(name, address, statusValue);
+        return propertyRepository.create(name, address, PropertyStatus.ACTIVE.name());
     }
 
     /**
@@ -57,29 +53,33 @@ public class PropertyService {
      */
     @Transactional
     public Property updateProperty(UUID id, String name, String address, PropertyStatus status) {
-        validatePropertyData(name, address);
-        String statusValue = status != null ? status.name() : PropertyStatus.ACTIVE.name();
-        return propertyRepository.update(id, name, address, statusValue)
+        if (name != null) validatePropertyData(name, address != null ? address : "");
+        if (address != null) validatePropertyData(name != null ? name : "", address);
+        
+        Property existing = getProperty(id);
+        String nameValue = name != null ? name : existing.name();
+        String addressValue = address != null ? address : existing.address();
+        String statusValue = status != null ? status.name() : existing.status();
+        
+        return propertyRepository.update(id, nameValue, addressValue, statusValue)
                 .orElseThrow(() -> new PropertyNotFoundException(id));
-    }
-
-    /**
-     * Archive (soft delete) a property by setting status to INACTIVE.
-     * @throws PropertyNotFoundException if property doesn't exist or belongs to another organization
-     */
-    @Transactional
-    public Property archiveProperty(UUID id) {
-        Property property = getProperty(id);
-        return updateProperty(id, property.name(), property.address(), PropertyStatus.INACTIVE);
     }
 
     /**
      * Delete a property, scoped to the current organization.
      * @throws PropertyNotFoundException if property doesn't exist or belongs to another organization
+     * @throws PropertyConflictException if property has active units or leases
      */
     @Transactional
     public void deleteProperty(UUID id) {
         Property property = getProperty(id);
+        
+        if (propertyRepository.hasActiveDependencies(id)) {
+            throw new PropertyConflictException(
+                    "Cannot delete property with active units or leases. " +
+                    "Property must have no occupied units and no active leases.");
+        }
+        
         boolean deleted = propertyRepository.delete(id);
         if (!deleted) {
             throw new PropertyNotFoundException(id);
@@ -94,8 +94,8 @@ public class PropertyService {
         if (name == null || name.trim().isEmpty()) {
             throw new IllegalArgumentException("Property name cannot be empty");
         }
-        if (name.length() < 2) {
-            throw new IllegalArgumentException("Property name must be at least 2 characters");
+        if (name.length() < 1) {
+            throw new IllegalArgumentException("Property name must be at least 1 character");
         }
         if (name.length() > 200) {
             throw new IllegalArgumentException("Property name cannot exceed 200 characters");

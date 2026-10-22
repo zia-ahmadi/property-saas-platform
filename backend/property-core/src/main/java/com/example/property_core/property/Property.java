@@ -5,10 +5,11 @@ import java.util.UUID;
 
 public record Property(
         UUID id,
-        UUID organizationId,
         String name,
         String address,
         String status,
+        int unitCount,
+        int occupiedUnits,
         Instant createdAt,
         Instant updatedAt) {
 }
