@@ -103,8 +103,13 @@ public class SecurityConfiguration {
                         .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login", "/actuator/health")
                         .permitAll()
                         .anyRequest().authenticated())
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint(SecurityProblemResponses.authenticationEntryPoint())
+                        .accessDeniedHandler(SecurityProblemResponses.accessDeniedHandler()))
                 .oauth2ResourceServer(resourceServer -> resourceServer
-                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)))
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter))
+                        .authenticationEntryPoint(SecurityProblemResponses.authenticationEntryPoint())
+                        .accessDeniedHandler(SecurityProblemResponses.accessDeniedHandler()))
                 .build();
     }
 }

@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimNames;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -48,7 +49,8 @@ class TenantIsolationTest {
                 .claim("roles", List.of("ADMIN"))
                 .build();
 
-        JwtAuthenticationToken authentication = new JwtAuthenticationToken(jwt);
+        JwtAuthenticationToken authentication =
+                new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
         SecurityContextHolder.getContext().setAuthentication(authentication);
 
         UUID organizationId = TenantContext.getCurrentOrganizationId();
@@ -88,7 +90,8 @@ class TenantIsolationTest {
                 .claim("roles", List.of("ADMIN"))
                 .build();
 
-        JwtAuthenticationToken auth1 = new JwtAuthenticationToken(jwt1);
+        JwtAuthenticationToken auth1 =
+                new JwtAuthenticationToken(jwt1, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
         SecurityContextHolder.getContext().setAuthentication(auth1);
 
         // Verify that the repository uses the correct organization ID

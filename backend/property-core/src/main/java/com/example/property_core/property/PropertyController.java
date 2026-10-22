@@ -3,6 +3,8 @@ package com.example.property_core.property;
 import java.util.UUID;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 
 import com.example.property_core.common.Page;
 import com.example.property_core.property.api.CreatePropertyRequest;
@@ -20,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.validation.annotation.Validated;
 
 /**
  * Properties API controller with tenant isolation enforcement.
@@ -27,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
  * Implements OpenAPI contract at /api-contracts/rest/openapi.yaml
  */
 @RestController
+@Validated
 @RequestMapping(path = "/api/v1/properties", produces = MediaType.APPLICATION_JSON_VALUE)
 public class PropertyController {
 
@@ -43,17 +47,12 @@ public class PropertyController {
      */
     @GetMapping
     public ResponseEntity<Page<Property>> listProperties(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
             @RequestParam(required = false) String sort,
-            @RequestParam(required = false) String status) {
-        
-        // Validate pagination parameters
-        if (page < 0) page = 0;
-        if (size < 1) size = 20;
-        if (size > 100) size = 100;
-        
-        Page<Property> properties = propertyService.getProperties(page, size, sort, status);
+            @RequestParam(required = false) PropertyStatus status) {
+        Page<Property> properties = propertyService.getProperties(
+                page, size, sort, status == null ? null : status.name());
         return ResponseEntity.ok(properties);
     }
 

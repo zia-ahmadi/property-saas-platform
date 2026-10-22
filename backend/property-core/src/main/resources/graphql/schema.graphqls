@@ -1,0 +1,75 @@
+"""
+GraphQL read-only contract for the Property Management SaaS dashboard.
+
+Authentication: every operation requires a valid bearer JWT.
+Multi-tenancy: tenantId is the organization ID derived from the JWT.
+Clients must not supply a tenantId argument. The backend must enforce tenant
+isolation for every field and nested result.
+
+REST (openapi.yaml) owns entity CRUD and all mutations. GraphQL is used for
+aggregated dashboard reads only.
+"""
+type Query {
+  """
+  Returns the dashboard summary for the currently authenticated organization.
+  generatedAt is an ISO-8601 UTC timestamp.
+  """
+  portfolioDashboard: PortfolioDashboard!
+
+  """
+  Returns maintenance requests for the authenticated organization.
+  If status is omitted, only unresolved requests are returned. If status is
+  supplied, matching requests (including RESOLVED when requested) are returned.
+  """
+  maintenanceAlerts(
+    status: MaintenanceStatus
+    priority: Priority
+  ): [MaintenanceAlert!]!
+}
+
+"""Aggregated read model rendered on the organization dashboard."""
+type PortfolioDashboard {
+  """Organization ID derived from the authenticated JWT."""
+  tenantId: ID!
+  """Total number of properties in this organization."""
+  totalProperties: Int!
+  """Total number of units across all properties."""
+  totalUnits: Int!
+  """Number of units currently OCCUPIED."""
+  occupiedUnits: Int!
+  """Occupancy rate from 0.0 to 1.0; zero when there are no units."""
+  occupancyRate: Float!
+  """Outstanding amount for invoices in ISSUED or OVERDUE status."""
+  totalOutstandingAmount: Float!
+  """Number of invoices currently in OVERDUE status."""
+  overdueInvoiceCount: Int!
+  """Unresolved maintenance requests requiring attention."""
+  activeMaintenanceRequests: [MaintenanceAlert!]!
+  """Time the dashboard data was computed, as an ISO-8601 UTC timestamp."""
+  generatedAt: String!
+}
+
+"""Compact maintenance information for dashboard lists and alerts."""
+type MaintenanceAlert {
+  id: ID!
+  priority: Priority!
+  status: MaintenanceStatus!
+  unitName: String!
+  propertyName: String!
+  description: String!
+  requestedDate: String!
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  EMERGENCY
+}
+
+enum MaintenanceStatus {
+  SUBMITTED
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+}

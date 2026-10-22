@@ -1,48 +1,43 @@
 package com.example.property_core.graphql;
 
 import java.time.Instant;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.UUID;
 
+import org.springframework.graphql.data.method.annotation.Argument;
 import org.springframework.graphql.data.method.annotation.QueryMapping;
 import org.springframework.stereotype.Controller;
 
 import com.example.property_core.tenant.TenantContext;
 
-/**
- * GraphQL query resolver with tenant isolation enforcement.
- * All queries are automatically scoped to the authenticated user's organization.
- */
 @Controller
 public class DashboardQueryResolver {
+    private final DashboardRepository repository;
 
-    private static final DateTimeFormatter ISO_FORMATTER = DateTimeFormatter.ISO_INSTANT;
-
-    @QueryMapping
-    public PortfolioDashboard portfolioDashboard() {
-        UUID organizationId = TenantContext.getCurrentOrganizationId();
-
-        // TODO: Implement actual data aggregation from the database
-        // For now, return a placeholder to demonstrate tenant isolation
-        return new PortfolioDashboard(
-                organizationId,
-                0, // totalProperties
-                0, // totalUnits
-                0, // occupiedUnits
-                0.0, // occupancyRate
-                0.0, // totalOutstandingAmount
-                0, // overdueInvoiceCount
-                List.of(), // activeMaintenanceRequests
-                ISO_FORMATTER.format(Instant.now()));
+    public DashboardQueryResolver(DashboardRepository repository) {
+        this.repository = repository;
     }
 
     @QueryMapping
-    public List<MaintenanceAlert> maintenanceAlerts(String status, String priority) {
-        UUID organizationId = TenantContext.getCurrentOrganizationId();
+    public PortfolioDashboard portfolioDashboard() {
+        DashboardRepository.DashboardCounts counts = repository.counts();
+        int units = Math.toIntExact(counts.units());
+        int occupiedUnits = Math.toIntExact(counts.occupiedUnits());
+        List<MaintenanceAlert> alerts = repository.maintenanceAlerts(null, null);
+        return new PortfolioDashboard(
+                TenantContext.getCurrentOrganizationId(),
+                Math.toIntExact(counts.properties()),
+                units,
+                occupiedUnits,
+                units == 0 ? 0.0 : (double) occupiedUnits / units,
+                counts.outstanding().doubleValue(),
+                Math.toIntExact(counts.overdueInvoices()),
+                alerts,
+                Instant.now().toString());
+    }
 
-        // TODO: Implement actual query with filters
-        // For now, return empty list to demonstrate tenant isolation
-        return List.of();
+    @QueryMapping
+    public List<MaintenanceAlert> maintenanceAlerts(
+            @Argument String status, @Argument String priority) {
+        return repository.maintenanceAlerts(status, priority);
     }
 }

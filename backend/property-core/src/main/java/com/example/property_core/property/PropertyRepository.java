@@ -1,10 +1,10 @@
 package com.example.property_core.property;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.example.property_core.common.JdbcTimestamps;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -41,8 +41,8 @@ public class PropertyRepository extends TenantScopedRepository {
                         resultSet.getString("status"),
                         resultSet.getInt("unit_count"),
                         resultSet.getInt("occupied_units"),
-                        resultSet.getObject("created_at", Instant.class),
-                        resultSet.getObject("updated_at", Instant.class)))
+                        JdbcTimestamps.getInstant(resultSet, "created_at"),
+                        JdbcTimestamps.getInstant(resultSet, "updated_at")))
                 .optional();
     }
 
@@ -52,7 +52,7 @@ public class PropertyRepository extends TenantScopedRepository {
      */
     public List<Property> findAll(int page, int size, String sort, String status) {
         UUID orgId = currentOrganizationId();
-        int offset = page * size;
+        long offset = Math.multiplyExact((long) page, size);
 
         String sql = """
                 SELECT p.id, p.name, p.address, p.status, p.created_at, p.updated_at,
@@ -69,21 +69,7 @@ public class PropertyRepository extends TenantScopedRepository {
 
         sql += " GROUP BY p.id, p.name, p.address, p.status, p.created_at, p.updated_at";
 
-        // Handle sorting
-        if (sort != null && !sort.isEmpty()) {
-            String[] sortParts = sort.split(",");
-            String sortField = sortParts[0].trim();
-            String direction = sortParts.length > 1 && sortParts[1].trim().equalsIgnoreCase("desc") ? "DESC" : "ASC";
-            
-            // Validate sort field to prevent SQL injection
-            if (sortField.matches("^[a-zA-Z_]+$")) {
-                sql += " ORDER BY p." + sortField + " " + direction;
-            } else {
-                sql += " ORDER BY p.name ASC";
-            }
-        } else {
-            sql += " ORDER BY p.name ASC";
-        }
+        sql += " ORDER BY " + orderBy(sort);
 
         sql += " LIMIT :size OFFSET :offset";
 
@@ -103,8 +89,8 @@ public class PropertyRepository extends TenantScopedRepository {
                 resultSet.getString("status"),
                 resultSet.getInt("unit_count"),
                 resultSet.getInt("occupied_units"),
-                resultSet.getObject("created_at", Instant.class),
-                resultSet.getObject("updated_at", Instant.class)))
+                JdbcTimestamps.getInstant(resultSet, "created_at"),
+                JdbcTimestamps.getInstant(resultSet, "updated_at")))
                 .list();
     }
 
@@ -131,6 +117,33 @@ public class PropertyRepository extends TenantScopedRepository {
         return query.query(Long.class).single();
     }
 
+    private String orderBy(String sort) {
+        if (sort == null || sort.isBlank()) {
+            return "p.name ASC, p.id ASC";
+        }
+
+        String[] parts = sort.split(",", -1);
+        String column = switch (parts[0].trim()) {
+            case "name" -> "p.name";
+            case "address" -> "p.address";
+            case "status" -> "p.status";
+            case "createdAt" -> "p.created_at";
+            case "updatedAt" -> "p.updated_at";
+            case "unitCount" -> "unit_count";
+            case "occupiedUnits" -> "occupied_units";
+            default -> throw new IllegalArgumentException("Unsupported property sort field");
+        };
+        if (parts.length > 2 || (parts.length == 2
+                && !parts[1].trim().equalsIgnoreCase("asc")
+                && !parts[1].trim().equalsIgnoreCase("desc"))) {
+            throw new IllegalArgumentException("Sort direction must be asc or desc");
+        }
+        String direction = parts.length == 2 && parts[1].trim().equalsIgnoreCase("desc")
+                ? "DESC"
+                : "ASC";
+        return column + " " + direction + ", p.id ASC";
+    }
+
     /**
      * Check if a property has active units or leases.
      * Returns true if the property has units that are OCCUPIED or has active leases.
@@ -138,22 +151,19 @@ public class PropertyRepository extends TenantScopedRepository {
     public boolean hasActiveDependencies(UUID id) {
         UUID orgId = currentOrganizationId();
         
-        // Check for occupied units
-        Integer occupiedUnits = jdbcClient.sql("""
+        Integer units = jdbcClient.sql("""
                 SELECT COUNT(*)
-                FROM units
-                WHERE property_id = :id AND organization_id = :organizationId AND status = 'OCCUPIED'
+                FROM units WHERE property_id = :id AND organization_id = :organizationId
                 """)
                 .param("id", id)
                 .param("organizationId", orgId)
                 .query(Integer.class)
                 .single();
         
-        if (occupiedUnits != null && occupiedUnits > 0) {
+        if (units != null && units > 0) {
             return true;
         }
 
-        // Check for active leases
         Integer activeLeases = jdbcClient.sql("""
                 SELECT COUNT(*)
                 FROM leases

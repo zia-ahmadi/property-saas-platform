@@ -53,14 +53,12 @@ public class PropertyService {
      */
     @Transactional
     public Property updateProperty(UUID id, String name, String address, PropertyStatus status) {
-        if (name != null) validatePropertyData(name, address != null ? address : "");
-        if (address != null) validatePropertyData(name != null ? name : "", address);
-        
         Property existing = getProperty(id);
         String nameValue = name != null ? name : existing.name();
         String addressValue = address != null ? address : existing.address();
+        validatePropertyData(nameValue, addressValue);
         String statusValue = status != null ? status.name() : existing.status();
-        
+
         return propertyRepository.update(id, nameValue, addressValue, statusValue)
                 .orElseThrow(() -> new PropertyNotFoundException(id));
     }

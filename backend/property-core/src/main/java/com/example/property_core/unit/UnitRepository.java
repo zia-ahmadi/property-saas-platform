@@ -1,11 +1,11 @@
 package com.example.property_core.unit;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.example.property_core.common.JdbcTimestamps;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -24,93 +24,72 @@ public class UnitRepository extends TenantScopedRepository {
     public Optional<Unit> findById(UUID id) {
         UUID orgId = currentOrganizationId();
         return jdbcClient.sql("""
-                SELECT id, organization_id, property_id, name, status, bedrooms, bathrooms, monthly_rent, created_at, updated_at
+                SELECT id, property_id, name, status, bedrooms, bathrooms, monthly_rent, created_at, updated_at
                 FROM units
                 WHERE id = :id AND organization_id = :organizationId
                 """)
                 .param("id", id)
                 .param("organizationId", orgId)
-                .query((resultSet, rowNumber) -> new Unit(
-                        resultSet.getObject("id", UUID.class),
-                        resultSet.getObject("organization_id", UUID.class),
-                        resultSet.getObject("property_id", UUID.class),
-                        resultSet.getString("name"),
-                        resultSet.getString("status"),
-                        (Integer) resultSet.getObject("bedrooms"),
-                        resultSet.getObject("bathrooms", BigDecimal.class),
-                        resultSet.getObject("monthly_rent", BigDecimal.class),
-                        resultSet.getObject("created_at", Instant.class),
-                        resultSet.getObject("updated_at", Instant.class)))
+                .query(this::mapUnit)
                 .optional();
     }
 
     /**
      * Find all units for the current organization.
      */
-    public List<Unit> findAll() {
+    public List<Unit> findByPropertyId(UUID propertyId, int page, int size, String status) {
         UUID orgId = currentOrganizationId();
-        return jdbcClient.sql("""
-                SELECT id, organization_id, property_id, name, status, bedrooms, bathrooms, monthly_rent, created_at, updated_at
+        String sql = """
+                SELECT id, property_id, name, status, bedrooms, bathrooms, monthly_rent, created_at, updated_at
                 FROM units
-                WHERE organization_id = :organizationId
-                ORDER BY property_id, name
-                """)
+                WHERE organization_id = :organizationId AND property_id = :propertyId
+                """;
+        if (status != null) {
+            sql += " AND status = :status";
+        }
+        sql += " ORDER BY name, id LIMIT :size OFFSET :offset";
+        var query = jdbcClient.sql(sql)
                 .param("organizationId", orgId)
-                .query((resultSet, rowNumber) -> new Unit(
-                        resultSet.getObject("id", UUID.class),
-                        resultSet.getObject("organization_id", UUID.class),
-                        resultSet.getObject("property_id", UUID.class),
-                        resultSet.getString("name"),
-                        resultSet.getString("status"),
-                        (Integer) resultSet.getObject("bedrooms"),
-                        resultSet.getObject("bathrooms", BigDecimal.class),
-                        resultSet.getObject("monthly_rent", BigDecimal.class),
-                        resultSet.getObject("created_at", Instant.class),
-                        resultSet.getObject("updated_at", Instant.class)))
-                .list();
+                .param("propertyId", propertyId)
+                .param("size", size)
+                .param("offset", Math.multiplyExact((long) page, size));
+        if (status != null) {
+            query = query.param("status", status);
+        }
+        return query.query(this::mapUnit).list();
     }
 
-    /**
-     * Find all units for a specific property, scoped to the current organization.
-     */
-    public List<Unit> findByPropertyId(UUID propertyId) {
+    public long countByPropertyId(UUID propertyId, String status) {
         UUID orgId = currentOrganizationId();
-        return jdbcClient.sql("""
-                SELECT id, organization_id, property_id, name, status, bedrooms, bathrooms, monthly_rent, created_at, updated_at
-                FROM units
-                WHERE property_id = :propertyId AND organization_id = :organizationId
-                ORDER BY name
-                """)
-                .param("propertyId", propertyId)
+        String sql = """
+                SELECT COUNT(*) FROM units
+                WHERE organization_id = :organizationId AND property_id = :propertyId
+                """;
+        if (status != null) {
+            sql += " AND status = :status";
+        }
+        var query = jdbcClient.sql(sql)
                 .param("organizationId", orgId)
-                .query((resultSet, rowNumber) -> new Unit(
-                        resultSet.getObject("id", UUID.class),
-                        resultSet.getObject("organization_id", UUID.class),
-                        resultSet.getObject("property_id", UUID.class),
-                        resultSet.getString("name"),
-                        resultSet.getString("status"),
-                        (Integer) resultSet.getObject("bedrooms"),
-                        resultSet.getObject("bathrooms", BigDecimal.class),
-                        resultSet.getObject("monthly_rent", BigDecimal.class),
-                        resultSet.getObject("created_at", Instant.class),
-                        resultSet.getObject("updated_at", Instant.class)))
-                .list();
+                .param("propertyId", propertyId);
+        if (status != null) {
+            query = query.param("status", status);
+        }
+        return query.query(Long.class).single();
     }
 
     /**
      * Create a new unit for the current organization.
      */
-    public Unit create(UUID propertyId, String name, String status, Integer bedrooms, BigDecimal bathrooms, BigDecimal monthlyRent) {
+    public Unit create(UUID propertyId, String name, Integer bedrooms, BigDecimal bathrooms, BigDecimal monthlyRent) {
         UUID orgId = currentOrganizationId();
         UUID id = jdbcClient.sql("""
-                INSERT INTO units (organization_id, property_id, name, status, bedrooms, bathrooms, monthly_rent)
-                VALUES (:organizationId, :propertyId, :name, :status, :bedrooms, :bathrooms, :monthlyRent)
+                INSERT INTO units (organization_id, property_id, name, bedrooms, bathrooms, monthly_rent)
+                VALUES (:organizationId, :propertyId, :name, :bedrooms, :bathrooms, :monthlyRent)
                 RETURNING id
                 """)
                 .param("organizationId", orgId)
                 .param("propertyId", propertyId)
                 .param("name", name)
-                .param("status", status)
                 .param("bedrooms", bedrooms)
                 .param("bathrooms", bathrooms)
                 .param("monthlyRent", monthlyRent)
@@ -122,11 +101,17 @@ public class UnitRepository extends TenantScopedRepository {
     /**
      * Update a unit, scoped to the current organization.
      */
-    public Optional<Unit> update(UUID id, String name, String status, Integer bedrooms, BigDecimal bathrooms, BigDecimal monthlyRent) {
+    public Optional<Unit> update(
+            UUID id, String name, String status, Integer bedrooms, BigDecimal bathrooms, BigDecimal monthlyRent) {
         UUID orgId = currentOrganizationId();
         int updated = jdbcClient.sql("""
                 UPDATE units
-                SET name = :name, status = :status, bedrooms = :bedrooms, bathrooms = :bathrooms, monthly_rent = :monthlyRent, updated_at = CURRENT_TIMESTAMP
+                SET name = COALESCE(:name, name),
+                    status = COALESCE(:status, status),
+                    bedrooms = COALESCE(:bedrooms, bedrooms),
+                    bathrooms = COALESCE(:bathrooms, bathrooms),
+                    monthly_rent = COALESCE(:monthlyRent, monthly_rent),
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = :id AND organization_id = :organizationId
                 """)
                 .param("id", id)
@@ -143,6 +128,19 @@ public class UnitRepository extends TenantScopedRepository {
         }
 
         return findById(id);
+    }
+
+    private Unit mapUnit(java.sql.ResultSet resultSet, int rowNumber) throws java.sql.SQLException {
+        return new Unit(
+                resultSet.getObject("id", UUID.class),
+                resultSet.getObject("property_id", UUID.class),
+                resultSet.getString("name"),
+                resultSet.getString("status"),
+                (Integer) resultSet.getObject("bedrooms"),
+                resultSet.getObject("bathrooms", BigDecimal.class),
+                resultSet.getObject("monthly_rent", BigDecimal.class),
+                JdbcTimestamps.getInstant(resultSet, "created_at"),
+                JdbcTimestamps.getInstant(resultSet, "updated_at"));
     }
 
     /**

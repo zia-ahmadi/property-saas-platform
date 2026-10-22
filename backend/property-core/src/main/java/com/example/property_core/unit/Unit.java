@@ -6,7 +6,6 @@ import java.util.UUID;
 
 public record Unit(
         UUID id,
-        UUID organizationId,
         UUID propertyId,
         String name,
         String status,

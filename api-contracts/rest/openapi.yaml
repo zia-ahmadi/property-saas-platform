@@ -1557,7 +1557,7 @@ components:
 
     Invoice:
       type: object
-      required: [id, leaseId, renterId, amount, dueDate, status, createdAt, updatedAt]
+      required: [id, leaseId, renterId, amount, dueDate, status, version, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -1577,6 +1577,9 @@ components:
           format: date
         status:
           $ref: '#/components/schemas/InvoiceStatus'
+        version:
+          type: integer
+          description: Optimistic lock version
         paidAt:
           type: string
           format: date-time
@@ -1765,9 +1768,12 @@ components:
 
     CreateMaintenanceRequest:
       type: object
-      required: [unitId, description, priority]
+      required: [unitId, renterId, description, priority]
       properties:
         unitId:
+          type: string
+          format: uuid
+        renterId:
           type: string
           format: uuid
         description:
