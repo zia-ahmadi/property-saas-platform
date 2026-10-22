@@ -1,22 +1,26 @@
+
 """
-Dashboard read model for the Property Management SaaS.
+GraphQL read-only contract for the Property Management SaaS dashboard.
 
-This schema is intentionally small: it serves the portfolio dashboard for the
-currently authenticated tenant. All mutations and entity CRUD are served over
-REST (see `api-contracts/rest/openapi.yaml`).
+Authentication: every operation requires a valid bearer JWT.
+Multi-tenancy: tenantId is the organization ID derived from the JWT.
+Clients must not supply a tenantId argument. The backend must enforce tenant
+isolation for every field and nested result.
 
-Multi-tenancy: the `tenantId` in `PortfolioDashboard` is derived from the JWT.
-Clients never pass a tenant id.
+REST (openapi.yaml) owns entity CRUD and all mutations. GraphQL is used for
+aggregated dashboard reads only.
 """
 type Query {
   """
-  Fetches the complete portfolio dashboard for the currently authenticated tenant.
+  Returns the dashboard summary for the currently authenticated organization.
+  generatedAt is an ISO-8601 UTC timestamp.
   """
   portfolioDashboard: PortfolioDashboard!
 
   """
-  Returns active maintenance alerts requiring attention, optionally filtered by
-  status and priority.
+  Returns maintenance requests for the authenticated organization.
+  If status is omitted, only unresolved requests are returned. If status is
+  supplied, matching requests (including RESOLVED when requested) are returned.
   """
   maintenanceAlerts(
     status: MaintenanceStatus
@@ -25,40 +29,38 @@ type Query {
 }
 
 """
-Aggregated read model rendered on the tenant's dashboard.
+Aggregated read model rendered on the organization dashboard.
 """
 type PortfolioDashboard {
-  "The tenant (organization) this dashboard belongs to. Derived from the JWT."
+  """Organization ID derived from the authenticated JWT."""
   tenantId: ID!
 
-  "Total number of properties owned by the tenant."
+  """Total number of properties in this organization."""
   totalProperties: Int!
 
-  "Total number of units across all properties."
+  """Total number of units across all properties."""
   totalUnits: Int!
 
-  "Number of units currently OCCUPIED."
+  """Number of units currently OCCUPIED."""
   occupiedUnits: Int!
 
-  "Occupancy rate across all units. Range 0.0 to 1.0."
+  """Occupancy rate from 0.0 to 1.0; zero when there are no units."""
   occupancyRate: Float!
 
-  "Sum of all outstanding (ISSUED + OVERDUE) invoice amounts."
+  """Outstanding amount for invoices in ISSUED or OVERDUE status."""
   totalOutstandingAmount: Float!
 
-  "Number of invoices currently in OVERDUE status."
+  """Number of invoices currently in OVERDUE status."""
   overdueInvoiceCount: Int!
 
-  "Active maintenance requests requiring attention (not RESOLVED)."
+  """Unresolved maintenance requests requiring attention."""
   activeMaintenanceRequests: [MaintenanceAlert!]!
 
-  "When this dashboard snapshot was computed."
+  """Time the dashboard data was computed, as an ISO-8601 UTC timestamp."""
   generatedAt: String!
 }
 
-"""
-Lightweight maintenance summary embedded in the dashboard.
-"""
+"""Compact maintenance information for dashboard lists and alerts."""
 type MaintenanceAlert {
   id: ID!
   priority: Priority!
