@@ -37,10 +37,18 @@ public class SecurityConfiguration {
         try {
             secret = Base64.getDecoder().decode(encodedSecret);
         } catch (IllegalArgumentException exception) {
-            throw new IllegalStateException("JWT_SECRET must be valid Base64", exception);
+            throw new IllegalStateException(
+                    "JWT_SECRET must be valid Base64. " +
+                    "Set JWT_SECRET environment variable with a Base64-encoded secret (minimum 32 bytes when decoded). " +
+                    "Example: export JWT_SECRET=\"$(openssl rand -base64 32)\"",
+                    exception);
         }
         if (secret.length < 32) {
-            throw new IllegalStateException("JWT_SECRET must decode to at least 32 bytes");
+            throw new IllegalStateException(
+                    "JWT_SECRET must decode to at least 32 bytes (256 bits) for HMAC-SHA256. " +
+                    "Current length: " + secret.length + " bytes. " +
+                    "Set JWT_SECRET environment variable with a longer Base64-encoded secret. " +
+                    "Example: export JWT_SECRET=\"$(openssl rand -base64 32)\"");
         }
         return new SecretKeySpec(secret, "HmacSHA256");
     }
