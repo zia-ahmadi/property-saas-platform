@@ -77,8 +77,17 @@ export interface Lease {
   endDate: string;
   monthlyRent: number;
   securityDeposit: number;
-  status: 'PENDING' | 'ACTIVE' | 'TERMINATED' | 'EXPIRED';
+  status: 'DRAFT' | 'ACTIVE' | 'TERMINATED' | 'EXPIRED';
   version: number;
+}
+
+export interface Renter {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Invoice {
@@ -269,6 +278,18 @@ export const unitApi = {
   },
 };
 
+// Renters (tenant contacts) API
+export const renterApi = {
+  list: async (page = 0, size = 100, q?: string): Promise<Page<Renter>> => {
+    const res = await apiClient.get<Page<Renter>>('/tenants', { params: { page, size, q } });
+    return res.data;
+  },
+  create: async (data: { fullName: string; email: string; phone?: string }): Promise<Renter> => {
+    const res = await apiClient.post<Renter>('/tenants', data);
+    return res.data;
+  },
+};
+
 // Leases API
 export const leaseApi = {
   list: async (page = 0, size = 10): Promise<Page<Lease>> => {
@@ -281,13 +302,13 @@ export const leaseApi = {
   },
   activate: async (id: string, version: number): Promise<Lease> => {
     const res = await apiClient.post<Lease>(`/leases/${id}/activate`, null, {
-      headers: { 'If-Match': String(version) },
+      headers: { 'If-Match': `"${version}"` },
     });
     return res.data;
   },
   terminate: async (id: string, version: number): Promise<Lease> => {
     const res = await apiClient.post<Lease>(`/leases/${id}/terminate`, null, {
-      headers: { 'If-Match': String(version) },
+      headers: { 'If-Match': `"${version}"` },
     });
     return res.data;
   },

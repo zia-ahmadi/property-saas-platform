@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { leaseApi, propertyApi, type Lease, type Property, type Unit } from '../services/api';
+import { leaseApi, propertyApi, renterApi, type Lease, type Property, type Unit, type Renter } from '../services/api';
 import { Plus, X } from 'lucide-react';
 
 export const LeasesPage: React.FC = () => {
@@ -10,6 +10,10 @@ export const LeasesPage: React.FC = () => {
   const [properties, setProperties] = useState<Property[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [selectedPropertyId, setSelectedPropertyId] = useState('');
+  const [renters, setRenters] = useState<Renter[]>([]);
+  const [showNewRenter, setShowNewRenter] = useState(false);
+  const [newRenterName, setNewRenterName] = useState('');
+  const [newRenterEmail, setNewRenterEmail] = useState('');
 
   // Form state
   const [unitId, setUnitId] = useState('');
@@ -44,6 +48,17 @@ export const LeasesPage: React.FC = () => {
     } catch (e) {
       console.error('Failed to load properties for lease modal', e);
     }
+    try {
+      const renterPage = await renterApi.list(0, 100);
+      setRenters(renterPage.content);
+      if (renterPage.content.length > 0) {
+        setRenterId((prev) => prev || renterPage.content[0].id);
+      } else {
+        setShowNewRenter(true);
+      }
+    } catch (e) {
+      console.error('Failed to load renters for lease modal', e);
+    }
   };
 
   useEffect(() => {
@@ -63,12 +78,40 @@ export const LeasesPage: React.FC = () => {
     }
   };
 
+  const handleAddRenter = async () => {
+    if (!newRenterName.trim() || !newRenterEmail.trim()) {
+      alert('Enter a renter name and email first');
+      return;
+    }
+    try {
+      const created = await renterApi.create({
+        fullName: newRenterName.trim(),
+        email: newRenterEmail.trim(),
+      });
+      setRenters((prev) => [...prev, created]);
+      setRenterId(created.id);
+      setNewRenterName('');
+      setNewRenterEmail('');
+      setShowNewRenter(false);
+    } catch (err: any) {
+      alert(err.message || 'Failed to add renter');
+    }
+  };
+
   const handleCreateLease = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!unitId) {
+      alert('Please select a unit');
+      return;
+    }
+    if (!renterId) {
+      alert('Please select or add a renter');
+      return;
+    }
     try {
       await leaseApi.create({
         unitId,
-        renterId: renterId || '00000000-0000-0000-0000-000000000001', // Default renter UUID for demo
+        renterId,
         startDate,
         endDate,
         monthlyRent,
@@ -172,7 +215,7 @@ export const LeasesPage: React.FC = () => {
                       </div>
                     </td>
                     <td className="py-4 px-6 text-right space-x-2">
-                      {lease.status === 'PENDING' && (
+                      {lease.status === 'DRAFT' && (
                         <button
                           onClick={() => handleActivate(lease)}
                           className="px-3 py-1 bg-green-600 hover:bg-green-500 text-white rounded-lg text-xs font-semibold shadow transition-all"
@@ -233,6 +276,54 @@ export const LeasesPage: React.FC = () => {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Select Renter</label>
+                <div className="flex space-x-2">
+                  <select
+                    value={renterId}
+                    onChange={(e) => setRenterId(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600"
+                  >
+                    <option value="">{renters.length === 0 ? 'No renters yet — add one' : 'Select a renter'}</option>
+                    {renters.map((r) => (
+                      <option key={r.id} value={r.id}>{r.fullName} ({r.email})</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewRenter((prev) => !prev)}
+                    className="px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap"
+                  >
+                    {showNewRenter ? 'Cancel' : 'New'}
+                  </button>
+                </div>
+                {showNewRenter && (
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Full name"
+                      value={newRenterName}
+                      onChange={(e) => setNewRenterName(e.target.value)}
+                      className="px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600"
+                    />
+                    <input
+                      type="email"
+                      placeholder="Email"
+                      value={newRenterEmail}
+                      onChange={(e) => setNewRenterEmail(e.target.value)}
+                      className="px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddRenter}
+                      className="sm:col-span-2 px-3 py-2 bg-slate-900 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold"
+                    >
+                      Add Renter
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
