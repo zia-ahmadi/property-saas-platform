@@ -15,11 +15,8 @@ export const PropertiesPage: React.FC = () => {
   // Form states
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
-  const [totalUnits, setTotalUnits] = useState(10);
-
-  const [unitNumber, setUnitNumber] = useState('');
-  const [floor, setFloor] = useState(1);
-  const [rentAmount, setRentAmount] = useState(1500);
+  const [unitName, setUnitName] = useState('');
+  const [monthlyRent, setMonthlyRent] = useState(1500);
 
   const loadProperties = async () => {
     try {
@@ -27,7 +24,7 @@ export const PropertiesPage: React.FC = () => {
       const page = await propertyApi.list(0, 50);
       setProperties(page.content);
       if (page.content.length > 0 && !selectedProperty) {
-        handleSelectProperty(page.content[0]);
+        void handleSelectProperty(page.content[0]);
       }
     } catch (err: any) {
       console.error(err.message || 'Failed to load properties');
@@ -40,7 +37,7 @@ export const PropertiesPage: React.FC = () => {
     setSelectedProperty(prop);
     try {
       const propertyUnits = await propertyApi.listUnits(prop.id);
-      setUnits(propertyUnits);
+      setUnits(propertyUnits.content);
     } catch (err) {
       console.error('Failed to load units for property:', err);
       setUnits([]);
@@ -54,12 +51,11 @@ export const PropertiesPage: React.FC = () => {
   const handleCreateProperty = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await propertyApi.create({ name, address, totalUnits });
+      await propertyApi.create({ name, address });
       setShowPropertyModal(false);
       setName('');
       setAddress('');
-      setTotalUnits(10);
-      loadProperties();
+      void loadProperties();
     } catch (err: any) {
       alert(err.message || 'Failed to create property');
     }
@@ -69,12 +65,11 @@ export const PropertiesPage: React.FC = () => {
     e.preventDefault();
     if (!selectedProperty) return;
     try {
-      await propertyApi.createUnit(selectedProperty.id, { unitNumber, floor, rentAmount });
+      await propertyApi.createUnit(selectedProperty.id, { name: unitName, monthlyRent });
       setShowUnitModal(false);
-      setUnitNumber('');
-      setFloor(1);
-      setRentAmount(1500);
-      handleSelectProperty(selectedProperty);
+      setUnitName('');
+      setMonthlyRent(1500);
+      void handleSelectProperty(selectedProperty);
     } catch (err: any) {
       alert(err.message || 'Failed to create unit');
     }
@@ -117,22 +112,22 @@ export const PropertiesPage: React.FC = () => {
               properties.map((prop) => {
                 const isSelected = selectedProperty?.id === prop.id;
                 return (
-                  <div
+                  <button
                     key={prop.id}
-                    onClick={() => handleSelectProperty(prop)}
-                    className={`p-4 cursor-pointer transition-all flex items-center justify-between ${
-                      isSelected ? 'bg-blue-50/70 border-l-4 border-blue-600' : 'hover:bg-slate-50'
-                    }`}
+                    type="button"
+                    onClick={() => void handleSelectProperty(prop)}
+                    aria-pressed={isSelected}
+                    className={`property-option${isSelected ? ' selected' : ''}`}
                   >
                     <div>
                       <h4 className="font-bold text-sm text-slate-900">{prop.name}</h4>
                       <p className="text-xs text-slate-500 truncate mt-0.5">{prop.address}</p>
                       <span className="inline-block mt-2 text-[10px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                        {prop.totalUnits} Units Allocated
+                        {prop.unitCount} {prop.unitCount === 1 ? 'unit' : 'units'}
                       </span>
                     </div>
                     <ChevronRight className={`w-4 h-4 ${isSelected ? 'text-blue-600' : 'text-slate-300'}`} />
-                  </div>
+                  </button>
                 );
               })
             )}
@@ -169,7 +164,7 @@ export const PropertiesPage: React.FC = () => {
                       <div key={unit.id} className="p-4 rounded-xl border border-slate-200 bg-white shadow-xs hover:border-slate-300 transition-all flex items-center justify-between">
                         <div>
                           <div className="flex items-center space-x-2">
-                            <span className="font-bold text-slate-900 text-base">Unit {unit.unitNumber}</span>
+                            <span className="font-bold text-slate-900 text-base">{unit.name}</span>
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                               unit.status === 'OCCUPIED' ? 'bg-green-100 text-green-700' :
                               unit.status === 'MAINTENANCE' ? 'bg-amber-100 text-amber-700' :
@@ -178,7 +173,12 @@ export const PropertiesPage: React.FC = () => {
                               {unit.status}
                             </span>
                           </div>
-                          <p className="text-xs text-slate-500 mt-1">Floor {unit.floor} • Rent: <span className="font-semibold text-slate-900">${unit.rentAmount.toLocaleString()}</span>/mo</p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {unit.bedrooms === null ? 'Unit' : `${unit.bedrooms} bed`}
+                            {unit.bathrooms === null ? '' : ` · ${unit.bathrooms} bath`}
+                            {' · Rent: '}
+                            <span className="font-semibold text-slate-900">${unit.monthlyRent.toLocaleString()}</span>/mo
+                          </p>
                         </div>
                         <Home className="w-5 h-5 text-slate-400" />
                       </div>
@@ -228,17 +228,6 @@ export const PropertiesPage: React.FC = () => {
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600"
                 />
               </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Total Units</label>
-                <input
-                  type="number"
-                  required
-                  min={1}
-                  value={totalUnits}
-                  onChange={(e) => setTotalUnits(parseInt(e.target.value))}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600"
-                />
-              </div>
               <div className="flex justify-end space-x-3 pt-2">
                 <button
                   type="button"
@@ -271,23 +260,13 @@ export const PropertiesPage: React.FC = () => {
             </div>
             <form onSubmit={handleCreateUnit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Unit Number</label>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Unit Name</label>
                 <input
                   type="text"
                   required
-                  value={unitNumber}
-                  onChange={(e) => setUnitNumber(e.target.value)}
+                  value={unitName}
+                  onChange={(e) => setUnitName(e.target.value)}
                   placeholder="101"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Floor</label>
-                <input
-                  type="number"
-                  required
-                  value={floor}
-                  onChange={(e) => setFloor(parseInt(e.target.value))}
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600"
                 />
               </div>
@@ -298,8 +277,8 @@ export const PropertiesPage: React.FC = () => {
                   required
                   min={0}
                   step={50}
-                  value={rentAmount}
-                  onChange={(e) => setRentAmount(parseFloat(e.target.value))}
+                  value={monthlyRent}
+                  onChange={(e) => setMonthlyRent(parseFloat(e.target.value))}
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600"
                 />
               </div>

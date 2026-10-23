@@ -50,7 +50,9 @@ export interface Property {
   id: string;
   name: string;
   address: string;
-  totalUnits: number;
+  status: string;
+  unitCount: number;
+  occupiedUnits: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -58,10 +60,11 @@ export interface Property {
 export interface Unit {
   id: string;
   propertyId: string;
-  unitNumber: string;
-  floor: number;
-  status: 'VACANT' | 'OCCUPIED' | 'MAINTENANCE';
-  rentAmount: number;
+  name: string;
+  status: 'AVAILABLE' | 'OCCUPIED' | 'MAINTENANCE';
+  bedrooms: number | null;
+  bathrooms: number | null;
+  monthlyRent: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -231,7 +234,7 @@ export const propertyApi = {
     const res = await apiClient.get<Property>(`/properties/${id}`);
     return res.data;
   },
-  create: async (data: { name: string; address: string; totalUnits: number }): Promise<Property> => {
+  create: async (data: { name: string; address: string }): Promise<Property> => {
     const res = await apiClient.post<Property>('/properties', data);
     return res.data;
   },
@@ -242,11 +245,13 @@ export const propertyApi = {
   delete: async (id: string): Promise<void> => {
     await apiClient.delete(`/properties/${id}`);
   },
-  listUnits: async (propertyId: string): Promise<Unit[]> => {
-    const res = await apiClient.get<Unit[]>(`/properties/${propertyId}/units`);
+  listUnits: async (propertyId: string, page = 0, size = 100): Promise<Page<Unit>> => {
+    const res = await apiClient.get<Page<Unit>>(`/properties/${propertyId}/units`, {
+      params: { page, size },
+    });
     return res.data;
   },
-  createUnit: async (propertyId: string, data: { unitNumber: string; floor: number; rentAmount: number }): Promise<Unit> => {
+  createUnit: async (propertyId: string, data: { name: string; monthlyRent: number }): Promise<Unit> => {
     const res = await apiClient.post<Unit>(`/properties/${propertyId}/units`, data);
     return res.data;
   },
@@ -258,7 +263,7 @@ export const unitApi = {
     const res = await apiClient.get<Unit>(`/units/${id}`);
     return res.data;
   },
-  update: async (id: string, data: { status?: 'VACANT' | 'OCCUPIED' | 'MAINTENANCE'; rentAmount?: number }): Promise<Unit> => {
+  update: async (id: string, data: { status?: Unit['status']; monthlyRent?: number }): Promise<Unit> => {
     const res = await apiClient.patch<Unit>(`/units/${id}`, data);
     return res.data;
   },

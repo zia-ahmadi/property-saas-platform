@@ -53,7 +53,7 @@ export const MaintenancePage: React.FC = () => {
       setProperties(pPage.content);
       if (pPage.content.length > 0) {
         setSelectedPropId(pPage.content[0].id);
-        const uList = await propertyApi.listUnits(pPage.content[0].id);
+        const uList = (await propertyApi.listUnits(pPage.content[0].id)).content;
         setUnits(uList);
         if (uList.length > 0) setUnitId(uList[0].id);
       }
@@ -69,7 +69,7 @@ export const MaintenancePage: React.FC = () => {
   const handlePropertyChange = async (propId: string) => {
     setSelectedPropId(propId);
     try {
-      const uList = await propertyApi.listUnits(propId);
+      const uList = (await propertyApi.listUnits(propId)).content;
       setUnits(uList);
       if (uList.length > 0) setUnitId(uList[0].id);
       else setUnitId('');
@@ -301,7 +301,7 @@ export const MaintenancePage: React.FC = () => {
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600"
                 >
                   {units.map((u) => (
-                    <option key={u.id} value={u.id}>Unit {u.unitNumber}</option>
+                    <option key={u.id} value={u.id}>{u.name}</option>
                   ))}
                 </select>
               </div>

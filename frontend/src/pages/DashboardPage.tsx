@@ -1,194 +1,268 @@
 import React, { useEffect, useState } from 'react';
-import { graphqlApi, type PortfolioDashboard } from '../services/api';
-import { 
-  Building2, 
-  Home, 
-  DollarSign, 
-  AlertTriangle, 
-  Clock, 
-  TrendingUp
+import { Link } from 'react-router-dom';
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  Building2,
+  Clock3,
+  DollarSign,
+  Home,
+  RefreshCw,
+  Wrench,
 } from 'lucide-react';
+import { graphqlApi, type PortfolioDashboard } from '../services/api';
+
+const currency = new Intl.NumberFormat(undefined, {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 0,
+});
+
+const dateTime = (value: string) => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? 'Unavailable'
+    : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+};
+
+const dateOnly = (value: string) => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? 'Unavailable'
+    : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const statusClass = (value: string) => value.toLowerCase().replaceAll('_', '-');
 
 export const DashboardPage: React.FC = () => {
   const [dashboard, setDashboard] = useState<PortfolioDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadDashboard = async () => {
+  const loadDashboard = async (showLoading = false) => {
     try {
-      setLoading(true);
-      const data = await graphqlApi.getDashboard();
-      setDashboard(data);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load dashboard data');
+      if (showLoading) {
+        setLoading(true);
+        setError(null);
+      }
+      setDashboard(await graphqlApi.getDashboard());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to load portfolio data.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadDashboard();
+    let mounted = true;
+
+    void graphqlApi.getDashboard()
+      .then((data) => {
+        if (mounted) {
+          setDashboard(data);
+          setLoading(false);
+        }
+      })
+      .catch((err: unknown) => {
+        if (mounted) {
+          setError(err instanceof Error ? err.message : 'Unable to load portfolio data.');
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  if (loading) {
+  if (loading && !dashboard) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+      <div className="dashboard-loading" role="status" aria-label="Loading portfolio overview">
+        <span className="loading-spinner" />
+        <span>Loading your portfolio…</span>
       </div>
     );
   }
 
-  if (error) {
+  if (error && !dashboard) {
     return (
-      <div className="bg-red-50 border border-red-200 text-red-700 p-6 rounded-2xl">
-        <h3 className="font-bold text-base mb-1">Failed to load GraphQL Dashboard</h3>
-        <p className="text-sm">{error}</p>
-        <button
-          onClick={loadDashboard}
-          className="mt-4 px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-semibold hover:bg-red-500"
-        >
-          Retry
-        </button>
-      </div>
+      <section className="surface dashboard-error" role="alert">
+        <span className="dashboard-error-icon"><AlertTriangle size={20} /></span>
+        <div>
+          <h2>Portfolio data is unavailable</h2>
+          <p>{error}</p>
+          <button type="button" className="button button-secondary" onClick={() => void loadDashboard(true)}>
+            <RefreshCw size={14} /> Try again
+          </button>
+        </div>
+      </section>
     );
   }
 
   if (!dashboard) return null;
 
-  const occupancyPercent = Math.round(dashboard.occupancyRate * 100);
+  const occupancyPercent = Math.max(0, Math.min(100, Math.round(dashboard.occupancyRate * 100)));
+  const activeRequests = dashboard.activeMaintenanceRequests;
+  const metrics = [
+    {
+      label: 'Properties',
+      value: dashboard.totalProperties.toLocaleString(),
+      foot: 'In your portfolio',
+      icon: Building2,
+      tone: '',
+    },
+    {
+      label: 'Residential units',
+      value: dashboard.totalUnits.toLocaleString(),
+      foot: `${dashboard.occupiedUnits.toLocaleString()} currently occupied`,
+      icon: Home,
+      tone: 'green',
+    },
+    {
+      label: 'Outstanding balance',
+      value: currency.format(dashboard.totalOutstandingAmount),
+      foot: `${dashboard.overdueInvoiceCount.toLocaleString()} overdue invoices`,
+      icon: DollarSign,
+      tone: dashboard.overdueInvoiceCount > 0 ? 'amber' : 'green',
+    },
+    {
+      label: 'Open maintenance',
+      value: activeRequests.length.toLocaleString(),
+      foot: 'Requests needing attention',
+      icon: Wrench,
+      tone: activeRequests.length > 0 ? 'red' : 'green',
+    },
+  ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="page dashboard-page">
+      <section className="page-header">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Portfolio Dashboard</h1>
-          <p className="text-sm text-slate-500">Real-time aggregated metrics via GraphQL</p>
+          <p className="page-eyebrow">Portfolio</p>
+          <h2 className="page-title">Your portfolio at a glance</h2>
+          <p className="page-description">A clear view of occupancy, finances, and day-to-day operations.</p>
         </div>
-        <div className="flex items-center space-x-2 text-xs font-medium bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-xs">
-          <Clock className="w-4 h-4 text-slate-400" />
-          <span>Last computed: {new Date(dashboard.generatedAt).toLocaleTimeString()}</span>
+        <div className="dashboard-updated" title={`Updated ${dateTime(dashboard.generatedAt)}`}>
+          <Clock3 size={14} />
+          <span>Updated {dateTime(dashboard.generatedAt)}</span>
         </div>
-      </div>
+      </section>
 
-      {/* Metric Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Properties</p>
-            <h3 className="text-3xl font-ext500 font-bold text-slate-900 mt-1">{dashboard.totalProperties}</h3>
-            <span className="text-xs text-blue-600 font-medium mt-2 inline-flex items-center space-x-1">
-              <Building2 className="w-3.5 h-3.5 mr-1" /> Managed portfolios
-            </span>
-          </div>
-          <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
-            <Building2 className="w-6 h-6" />
-          </div>
+      {error && (
+        <div className="dashboard-inline-error" role="status">
+          Could not refresh the latest data. Showing the last successfully loaded snapshot.
+          <button type="button" onClick={() => void loadDashboard(true)}>Retry</button>
         </div>
+      )}
 
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Units</p>
-            <h3 className="text-3xl font-bold text-slate-900 mt-1">{dashboard.totalUnits}</h3>
-            <span className="text-xs text-green-600 font-medium mt-2 inline-flex items-center space-x-1">
-              <Home className="w-3.5 h-3.5 mr-1" /> {dashboard.occupiedUnits} Occupied
-            </span>
-          </div>
-          <div className="w-12 h-12 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center">
-            <Home className="w-6 h-6" />
-          </div>
-        </div>
+      <section className="metrics-grid" aria-label="Portfolio metrics">
+        {metrics.map(({ label, value, foot, icon: Icon, tone }) => (
+          <article className="metric-card" key={label}>
+            <span className={`metric-icon ${tone}`}><Icon size={17} strokeWidth={1.8} /></span>
+            <p className="metric-label">{label}</p>
+            <p className="metric-value" title={value}>{value}</p>
+            <p className="metric-foot">{foot}</p>
+          </article>
+        ))}
+      </section>
 
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Occupancy Rate</p>
-            <h3 className="text-3xl font-bold text-slate-900 mt-1">{occupancyPercent}%</h3>
-            <div className="w-full bg-slate-100 h-2 rounded-full mt-3 overflow-hidden">
-              <div 
-                className="bg-blue-600 h-full rounded-full transition-all duration-500" 
-                style={{ width: `${occupancyPercent}%` }}
-              ></div>
+      <section className="dashboard-grid">
+        <article className="surface">
+          <header className="surface-heading">
+            <div>
+              <h3 className="surface-title">Occupancy</h3>
+              <p className="surface-caption">Current portfolio utilization</p>
+            </div>
+            <Link to="/properties" className="text-link">View properties <ArrowUpRight size={13} /></Link>
+          </header>
+          <div className="occupancy-content">
+            <div
+              className="occupancy-ring"
+              style={{ '--occupancy': `${occupancyPercent}%` } as React.CSSProperties}
+              role="img"
+              aria-label={`${occupancyPercent}% of units occupied`}
+            >
+              <div className="occupancy-ring-inner">
+                <span className="occupancy-ring-value">{occupancyPercent}%</span>
+                <span className="occupancy-ring-label">occupied</span>
+              </div>
+            </div>
+            <div className="occupancy-copy">
+              <h3>Units across your portfolio</h3>
+              <p>Occupancy reflects the latest unit status recorded across your properties.</p>
+              <div className="occupancy-legend">
+                <div className="legend-row">
+                  <span className="legend-label"><i className="legend-dot" /> Occupied</span>
+                  <span className="legend-value">{dashboard.occupiedUnits.toLocaleString()}</span>
+                </div>
+                <div className="legend-row">
+                  <span className="legend-label"><i className="legend-dot vacant" /> Vacant or unavailable</span>
+                  <span className="legend-value">{Math.max(0, dashboard.totalUnits - dashboard.occupiedUnits).toLocaleString()}</span>
+                </div>
+              </div>
             </div>
           </div>
-          <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
-            <TrendingUp className="w-6 h-6" />
-          </div>
-        </div>
+        </article>
 
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+        <article className="surface attention-card">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Outstanding Balance</p>
-            <h3 className="text-3xl font-bold text-slate-900 mt-1">${dashboard.totalOutstandingAmount.toLocaleString()}</h3>
-            <span className="text-xs text-amber-600 font-medium mt-2 inline-flex items-center space-x-1">
-              <AlertTriangle className="w-3.5 h-3.5 mr-1" /> {dashboard.overdueInvoiceCount} Overdue invoices
-            </span>
+            <span className="attention-icon"><DollarSign size={16} /></span>
+            <h3>Receivables to review</h3>
+            <p>Outstanding invoices across your properties.</p>
+            <div className="attention-value">{currency.format(dashboard.totalOutstandingAmount)}</div>
+            <p className="attention-detail">
+              {dashboard.overdueInvoiceCount.toLocaleString()} {dashboard.overdueInvoiceCount === 1 ? 'invoice is' : 'invoices are'} overdue
+            </p>
           </div>
-          <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center">
-            <DollarSign className="w-6 h-6" />
-          </div>
-        </div>
-      </div>
+          <Link to="/billing" className="attention-link">
+            Review billing <ArrowUpRight size={15} />
+          </Link>
+        </article>
+      </section>
 
-      {/* Active Maintenance Requests / Alerts */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+      <section className="surface">
+        <header className="surface-heading">
           <div>
-            <h3 className="font-bold text-base text-slate-900">Active Maintenance Alerts</h3>
-            <p className="text-xs text-slate-500">Unresolved requests requiring vendor assignment or resolution</p>
+            <h3 className="surface-title">Maintenance requests</h3>
+            <p className="surface-caption">Open work orders that may need follow-up</p>
           </div>
-          <span className="bg-amber-100 text-amber-800 text-xs font-bold px-3 py-1 rounded-full">
-            {dashboard.activeMaintenanceRequests.length} Active
-          </span>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-sm">
+          <div className="surface-heading-actions">
+            <span className="request-count">{activeRequests.length} open</span>
+            <Link to="/maintenance" className="text-link">View all <ArrowUpRight size={13} /></Link>
+          </div>
+        </header>
+        <div className="alerts-table-wrap">
+          <table className="alerts-table">
             <thead>
-              <tr className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider border-b border-slate-200">
-                <th className="py-3 px-6 font-semibold">Property / Unit</th>
-                <th className="py-3 px-6 font-semibold">Priority</th>
-                <th className="py-3 px-6 font-semibold">Status</th>
-                <th className="py-3 px-6 font-semibold">Description</th>
-                <th className="py-3 px-6 font-semibold">Requested Date</th>
+              <tr>
+                <th scope="col">Property / unit</th>
+                <th scope="col">Issue</th>
+                <th scope="col">Priority</th>
+                <th scope="col">Status</th>
+                <th scope="col">Requested</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {dashboard.activeMaintenanceRequests.length === 0 ? (
+            <tbody>
+              {activeRequests.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-slate-400 text-sm">
-                    No active maintenance requests. All clear!
-                  </td>
+                  <td colSpan={5} className="empty-state">No open maintenance requests. You’re all caught up.</td>
                 </tr>
-              ) : (
-                dashboard.activeMaintenanceRequests.map((req) => (
-                  <tr key={req.id} className="hover:bg-slate-50/80">
-                    <td className="py-4 px-6 font-medium text-slate-900">
-                      <div>{req.propertyName}</div>
-                      <div className="text-xs text-slate-400 font-normal">Unit {req.unitName}</div>
-                    </td>
-                    <td className="py-4 px-6">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                        req.priority === 'EMERGENCY' ? 'bg-red-100 text-red-700' :
-                        req.priority === 'HIGH' ? 'bg-orange-100 text-orange-700' :
-                        req.priority === 'MEDIUM' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-slate-100 text-slate-700'
-                      }`}>
-                        {req.priority}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700">
-                        {req.status}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6 text-slate-600 max-w-xs truncate">{req.description}</td>
-                    <td className="py-4 px-6 text-slate-500 text-xs font-mono">{new Date(req.requestedDate).toLocaleDateString()}</td>
-                  </tr>
-                ))
-              )}
+              ) : activeRequests.slice(0, 6).map((request) => (
+                <tr key={request.id}>
+                  <td>
+                    <span className="table-primary">{request.propertyName}</span>
+                    <span className="table-secondary">Unit {request.unitName}</span>
+                  </td>
+                  <td className="maintenance-description" title={request.description}>{request.description}</td>
+                  <td><span className={`status-pill ${statusClass(request.priority)}`}>{request.priority}</span></td>
+                  <td><span className={`status-pill ${statusClass(request.status)}`}>{request.status.replaceAll('_', ' ')}</span></td>
+                  <td className="requested-date">{dateOnly(request.requestedDate)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
     </div>
   );
 };
