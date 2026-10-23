@@ -11,10 +11,38 @@ import { BillingPage } from './pages/BillingPage';
 import { MaintenancePage } from './pages/MaintenancePage';
 import './index.css';
 
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { token, isLoading } = useAuth();
-  if (isLoading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
-  return token ? <>{children}</> : <Navigate to="/auth" />;
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+  requiredRole?: 'ADMIN' | 'MANAGER' | 'TENANT';
+}
+
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole }) => {
+  const { token, isLoading, hasRole, isAdmin, isManager } = useAuth();
+  
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!token) {
+    return <Navigate to="/auth" />;
+  }
+
+  if (requiredRole) {
+    const authorized = 
+      (requiredRole === 'ADMIN' && isAdmin) ||
+      (requiredRole === 'MANAGER' && isManager) ||
+      (requiredRole === 'TENANT' && hasRole('TENANT'));
+
+    if (!authorized) {
+      return <Navigate to="/" />;
+    }
+  }
+
+  return <>{children}</>;
 };
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -25,10 +53,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route index element={<DashboardPage />} />
-            <Route path="properties" element={<PropertiesPage />} />
-            <Route path="leases" element={<LeasesPage />} />
-            <Route path="billing" element={<BillingPage />} />
-            <Route path="maintenance" element={<MaintenancePage />} />
+            <Route path="properties" element={<ProtectedRoute requiredRole="MANAGER"><PropertiesPage /></ProtectedRoute>} />
+            <Route path="leases" element={<ProtectedRoute requiredRole="MANAGER"><LeasesPage /></ProtectedRoute>} />
+            <Route path="billing" element={<ProtectedRoute requiredRole="MANAGER"><BillingPage /></ProtectedRoute>} />
+            <Route path="maintenance" element={<ProtectedRoute requiredRole="MANAGER"><MaintenancePage /></ProtectedRoute>} />
           </Route>
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 export const Layout: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, isManager, isAdmin } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -25,9 +25,6 @@ export const Layout: React.FC = () => {
     const token = localStorage.getItem('jwt_token');
     if (!token) return;
 
-    // Using fetch-based SSE or EventSource with custom headers if supported,
-    // or standard EventSource with token query param if backend supports it.
-    // Here we can connect to http://localhost:8080/api/v1/notifications/stream?token=...
     const eventSource = new EventSource(`http://localhost:8080/api/v1/notifications/stream?token=${token}`);
 
     eventSource.onmessage = (event) => {
@@ -50,13 +47,20 @@ export const Layout: React.FC = () => {
   }, []);
 
   const navItems = [
-    { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-    { to: '/properties', label: 'Properties & Units', icon: Building2 },
-    { to: '/leases', label: 'Leases', icon: FileText },
-    { to: '/billing', label: 'Billing & Payments', icon: Receipt },
-    { to: '/maintenance', label: 'Maintenance & Vendors', icon: Wrench },
-    { to: '/notifications', label: 'Live Events', icon: Bell },
+    { to: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['ANY'] },
+    { to: '/properties', label: 'Properties & Units', icon: Building2, roles: ['ADMIN', 'MANAGER'] },
+    { to: '/leases', label: 'Leases', icon: FileText, roles: ['ADMIN', 'MANAGER'] },
+    { to: '/billing', label: 'Billing & Payments', icon: Receipt, roles: ['ADMIN', 'MANAGER'] },
+    { to: '/maintenance', label: 'Maintenance & Vendors', icon: Wrench, roles: ['ADMIN', 'MANAGER'] },
+    { to: '/notifications', label: 'Live Events', icon: Bell, roles: ['ANY'] },
   ];
+
+  const filteredNavItems = navItems.filter(item => {
+    if (item.roles.includes('ANY')) return true;
+    if (isAdmin) return true;
+    if (isManager && item.roles.includes('MANAGER')) return true;
+    return false;
+  });
 
   return (
     <div className="min-h-screen flex bg-slate-50 text-slate-900">
@@ -73,7 +77,7 @@ export const Layout: React.FC = () => {
         </div>
 
         <nav className="flex-1 p-4 space-y-1.5 overflow-y-auto">
-          {navItems.map((item) => {
+          {filteredNavItems.map((item) => {
             const Icon = item.icon;
             return (
               <NavLink
@@ -182,7 +186,7 @@ export const Layout: React.FC = () => {
         {/* Mobile Nav Drawer */}
         {mobileMenuOpen && (
           <div className="md:hidden bg-slate-900 text-white p-4 space-y-2 border-b border-slate-800">
-            {navItems.map((item) => {
+            {filteredNavItems.map((item) => {
               const Icon = item.icon;
               return (
                 <NavLink

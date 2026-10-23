@@ -8,6 +8,10 @@ interface AuthContextType {
   login: (tokenStr: string) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
+  hasRole: (role: string) => boolean;
+  isAdmin: boolean;
+  isManager: boolean;
+  isTenantUser: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -56,8 +60,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const hasRole = (role: string): boolean => {
+    if (!user || !user.roles) return false;
+    return user.roles.includes(role) || user.roles.includes(`ROLE_${role}`);
+  };
+
+  const isAdmin = hasRole('ADMIN');
+  const isManager = hasRole('MANAGER') || isAdmin;
+  const isTenantUser = hasRole('TENANT');
+
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, logout, refreshUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        isLoading,
+        login,
+        logout,
+        refreshUser,
+        hasRole,
+        isAdmin,
+        isManager,
+        isTenantUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
