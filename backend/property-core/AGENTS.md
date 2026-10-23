@@ -21,6 +21,7 @@ Property Core is a Spring Boot backend service for a Property Management SaaS pl
   - `tenant/` - Tenant isolation utilities
   - `property/` - Property management
   - `unit/` - Unit management
+  - `events/` - Tenant-scoped domain events published through RabbitMQ
   - `graphql/` - GraphQL resolvers
 - `src/main/resources/db/migration/` - Flyway migrations
 - `src/main/resources/graphql/` - GraphQL schema
@@ -125,8 +126,49 @@ cd backend/property-core
 - `PATCH /api/v1/units/{id}` - Update unit (tenant-scoped)
 
 ### Other Endpoints (Not Yet Implemented)
-- Leases, Invoices, Payments, Vendors, Maintenance Requests, Tenants, Notifications
+- Leases, Invoices, Payments, Vendors, Maintenance Requests, Tenants
 - OpenAPI-generated stubs exist in `target/generated-sources/openapi/`
+
+## Notifications and Domain Events
+
+`property-core` publishes tenant-scoped domain events to RabbitMQ. The
+`property-notifications` Spring Boot service consumes those events and exposes
+them to authenticated clients as Server-Sent Events (SSE).
+
+### Event flow
+
+1. `EventPublisher` reads the organization ID from `TenantContext` and publishes
+   a `DomainEvent` containing an event ID, event type, occurrence timestamp,
+   organization ID, and event data.
+2. Events are sent to the durable `domain.events` fanout exchange. The durable
+   `notifications` queue is bound to that exchange.
+3. `property-notifications` consumes the queue and broadcasts each event only to
+   SSE clients subscribed to the event's organization.
+4. Clients connect to `GET /api/v1/notifications/stream` with a JWT containing a
+   `tenantId` claim. The stream sends keep-alive comments every 25 seconds.
+
+Current event types published by core:
+- `LEASE_ACTIVATED`
+- `MAINTENANCE_STATUS_CHANGED`
+- `PAYMENT_RECEIVED`
+
+Both RabbitMQ JSON message converters register Jackson's Java-time module so
+the event's `Instant` timestamp is serialized and deserialized correctly.
+
+### RabbitMQ configuration
+
+Both services use the following environment variables (defaults are for local
+development):
+- `RABBITMQ_HOST` - RabbitMQ host (default: `localhost`)
+- `RABBITMQ_PORT` - AMQP port (default: `5672`)
+- `RABBITMQ_USER` - RabbitMQ username (default: `guest`)
+- `RABBITMQ_PASSWORD` - RabbitMQ password (default: `guest`)
+
+Start RabbitMQ locally with `docker compose up -d rabbitmq` from the repository
+root. The management UI is exposed on port `15672`.
+
+Event publication is not backed by a transactional outbox. Publishing failures
+are logged and propagated to the caller.
 
 ### GraphQL
 - `POST /graphql` - Query dashboard (tenant-scoped)

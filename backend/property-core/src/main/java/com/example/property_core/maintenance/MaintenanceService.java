@@ -4,7 +4,7 @@ import java.util.UUID;
 
 import com.example.property_core.common.Page;
 import com.example.property_core.exception.ApiException;
-import com.example.property_core.notification.NotificationPublisher;
+import com.example.property_core.events.EventPublisher;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -13,11 +13,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class MaintenanceService {
     private final MaintenanceRepository repository;
-    private final NotificationPublisher notificationPublisher;
+    private final EventPublisher eventPublisher;
 
-    public MaintenanceService(MaintenanceRepository repository, NotificationPublisher notificationPublisher) {
+    public MaintenanceService(MaintenanceRepository repository, EventPublisher eventPublisher) {
         this.repository = repository;
-        this.notificationPublisher = notificationPublisher;
+        this.eventPublisher = eventPublisher;
     }
 
     public Page<MaintenanceItem> list(
@@ -84,7 +84,7 @@ public class MaintenanceService {
     }
 
     private void publishStatusChange(MaintenanceItem item) {
-        notificationPublisher.publish("MAINTENANCE_STATUS_CHANGED", java.util.Map.of(
+        eventPublisher.publish("MAINTENANCE_STATUS_CHANGED", java.util.Map.of(
                 "requestId", item.id(), "status", item.status().name(), "version", item.version()));
     }
 

@@ -7,7 +7,7 @@ import java.util.UUID;
 
 import com.example.property_core.common.Page;
 import com.example.property_core.exception.ApiException;
-import com.example.property_core.notification.NotificationPublisher;
+import com.example.property_core.events.EventPublisher;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -17,11 +17,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class LeaseService {
     private final LeaseRepository leaseRepository;
-    private final NotificationPublisher notificationPublisher;
+    private final EventPublisher eventPublisher;
 
-    public LeaseService(LeaseRepository leaseRepository, NotificationPublisher notificationPublisher) {
+    public LeaseService(LeaseRepository leaseRepository, EventPublisher eventPublisher) {
         this.leaseRepository = leaseRepository;
-        this.notificationPublisher = notificationPublisher;
+        this.eventPublisher = eventPublisher;
     }
 
     public Page<Lease> list(LeaseStatus status, UUID renterId, UUID unitId, int page, int size) {
@@ -70,7 +70,7 @@ public class LeaseService {
             throw preconditionFailed();
         }
         leaseRepository.updateUnitStatus(lease.unitId(), "OCCUPIED");
-        notificationPublisher.publish("LEASE_ACTIVATED", java.util.Map.of(
+        eventPublisher.publish("LEASE_ACTIVATED", java.util.Map.of(
                 "leaseId", lease.id(), "unitId", lease.unitId()));
         return get(id);
     }

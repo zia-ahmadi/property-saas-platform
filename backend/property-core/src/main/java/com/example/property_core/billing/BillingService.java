@@ -12,10 +12,10 @@ import java.util.UUID;
 
 import com.example.property_core.common.Page;
 import com.example.property_core.exception.ApiException;
+import com.example.property_core.events.EventPublisher;
 import com.example.property_core.lease.Lease;
 import com.example.property_core.lease.LeaseRepository;
 import com.example.property_core.lease.LeaseStatus;
-import com.example.property_core.notification.NotificationPublisher;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -26,17 +26,17 @@ public class BillingService {
     private final InvoiceRepository invoiceRepository;
     private final PaymentRepository paymentRepository;
     private final LeaseRepository leaseRepository;
-    private final NotificationPublisher notificationPublisher;
+    private final EventPublisher eventPublisher;
 
     public BillingService(
             InvoiceRepository invoiceRepository,
             PaymentRepository paymentRepository,
             LeaseRepository leaseRepository,
-            NotificationPublisher notificationPublisher) {
+            EventPublisher eventPublisher) {
         this.invoiceRepository = invoiceRepository;
         this.paymentRepository = paymentRepository;
         this.leaseRepository = leaseRepository;
-        this.notificationPublisher = notificationPublisher;
+        this.eventPublisher = eventPublisher;
     }
 
     public Page<Invoice> listInvoices(
@@ -111,7 +111,7 @@ public class BillingService {
         if (settled.compareTo(invoice.amount()) >= 0) {
             invoiceRepository.markPaid(invoiceId);
         }
-        notificationPublisher.publish("PAYMENT_RECEIVED", java.util.Map.of(
+        eventPublisher.publish("PAYMENT_RECEIVED", java.util.Map.of(
                 "paymentId", payment.id(),
                 "invoiceId", invoiceId,
                 "amount", payment.amount()));
