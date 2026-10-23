@@ -103,28 +103,31 @@ export interface Payment {
   id: string;
   invoiceId: string;
   amount: number;
-  paymentDate: string;
   paymentMethod: string;
-  referenceNumber: string;
+  status: string;
+  createdAt?: string;
 }
 
 export interface MaintenanceRequest {
   id: string;
   unitId: string;
-  vendorId?: string;
+  renterId: string;
+  vendorId?: string | null;
   description: string;
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'EMERGENCY';
   status: 'SUBMITTED' | 'ASSIGNED' | 'IN_PROGRESS' | 'RESOLVED';
   version: number;
+  requestedDate?: string;
   createdAt?: string;
 }
 
 export interface Vendor {
   id: string;
   name: string;
-  specialty: string;
-  phone: string;
-  email: string;
+  serviceType: string;
+  phone: string | null;
+  email: string | null;
+  active: boolean;
 }
 
 export interface PortfolioDashboard {
@@ -339,33 +342,39 @@ export const paymentApi = {
 // Maintenance & Vendors API
 export const maintenanceApi = {
   list: async (page = 0, size = 10): Promise<Page<MaintenanceRequest>> => {
-    const res = await apiClient.get<Page<MaintenanceRequest>>('/maintenance', { params: { page, size } });
+    const res = await apiClient.get<Page<MaintenanceRequest>>('/maintenance-requests', { params: { page, size } });
     return res.data;
   },
-  create: async (data: { unitId: string; description: string; priority: string }): Promise<MaintenanceRequest> => {
-    const res = await apiClient.post<MaintenanceRequest>('/maintenance', data);
+  create: async (data: { unitId: string; renterId: string; description: string; priority: string }): Promise<MaintenanceRequest> => {
+    const res = await apiClient.post<MaintenanceRequest>('/maintenance-requests', data);
     return res.data;
   },
   assign: async (id: string, vendorId: string, version: number): Promise<MaintenanceRequest> => {
-    const res = await apiClient.post<MaintenanceRequest>(`/maintenance/${id}/assign`, { vendorId }, {
-      headers: { 'If-Match': String(version) },
+    const res = await apiClient.patch<MaintenanceRequest>(`/maintenance-requests/${id}/assign`, { vendorId }, {
+      headers: { 'If-Match': `"${version}"` },
     });
     return res.data;
   },
-  resolve: async (id: string, version: number): Promise<MaintenanceRequest> => {
-    const res = await apiClient.post<MaintenanceRequest>(`/maintenance/${id}/resolve`, null, {
-      headers: { 'If-Match': String(version) },
+  start: async (id: string, version: number): Promise<MaintenanceRequest> => {
+    const res = await apiClient.post<MaintenanceRequest>(`/maintenance-requests/${id}/start`, null, {
+      headers: { 'If-Match': `"${version}"` },
+    });
+    return res.data;
+  },
+  resolve: async (id: string, version: number, resolutionNotes: string): Promise<MaintenanceRequest> => {
+    const res = await apiClient.post<MaintenanceRequest>(`/maintenance-requests/${id}/resolve`, { resolutionNotes }, {
+      headers: { 'If-Match': `"${version}"` },
     });
     return res.data;
   },
 };
 
 export const vendorApi = {
-  list: async (): Promise<Vendor[]> => {
-    const res = await apiClient.get<Vendor[]>('/vendors');
+  list: async (page = 0, size = 100): Promise<Page<Vendor>> => {
+    const res = await apiClient.get<Page<Vendor>>('/vendors', { params: { page, size } });
     return res.data;
   },
-  create: async (data: { name: string; specialty: string; phone: string; email: string }): Promise<Vendor> => {
+  create: async (data: { name: string; serviceType: string; phone: string; email: string }): Promise<Vendor> => {
     const res = await apiClient.post<Vendor>('/vendors', data);
     return res.data;
   },

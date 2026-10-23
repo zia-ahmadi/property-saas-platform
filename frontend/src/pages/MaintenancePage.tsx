@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { maintenanceApi, vendorApi, propertyApi, type MaintenanceRequest, type Vendor, type Property, type Unit } from '../services/api';
+import { maintenanceApi, vendorApi, propertyApi, renterApi, type MaintenanceRequest, type Vendor, type Property, type Unit, type Renter } from '../services/api';
 import { Plus, Users, X } from 'lucide-react';
 
 export const MaintenancePage: React.FC = () => {
@@ -11,13 +11,17 @@ export const MaintenancePage: React.FC = () => {
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showVendorModal, setShowVendorModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
+  const [showResolveModal, setShowResolveModal] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<MaintenanceRequest | null>(null);
+  const [resolveNotes, setResolveNotes] = useState('');
 
   // Form states for request
   const [properties, setProperties] = useState<Property[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
+  const [renters, setRenters] = useState<Renter[]>([]);
   const [selectedPropId, setSelectedPropId] = useState('');
   const [unitId, setUnitId] = useState('');
+  const [renterId, setRenterId] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'EMERGENCY'>('MEDIUM');
 
@@ -26,20 +30,20 @@ export const MaintenancePage: React.FC = () => {
 
   // New vendor form state
   const [vendorName, setVendorName] = useState('');
-  const [vendorSpecialty, setVendorSpecialty] = useState('');
+  const [vendorServiceType, setVendorServiceType] = useState('');
   const [vendorPhone, setVendorPhone] = useState('');
   const [vendorEmail, setVendorEmail] = useState('');
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [reqPage, vendorList] = await Promise.all([
+      const [reqPage, vendorPage] = await Promise.all([
         maintenanceApi.list(0, 50),
-        vendorApi.list(),
+        vendorApi.list(0, 100),
       ]);
       setRequests(reqPage.content);
-      setVendors(vendorList);
-      if (vendorList.length > 0) setVendorId(vendorList[0].id);
+      setVendors(vendorPage.content);
+      if (vendorPage.content.length > 0) setVendorId(vendorPage.content[0].id);
     } catch (err: any) {
       console.error(err.message || 'Failed to load maintenance data');
     } finally {
@@ -59,6 +63,13 @@ export const MaintenancePage: React.FC = () => {
       }
     } catch (e) {
       console.error('Failed to load properties for maintenance modal', e);
+    }
+    try {
+      const renterPage = await renterApi.list(0, 100);
+      setRenters(renterPage.content);
+      if (renterPage.content.length > 0) setRenterId(renterPage.content[0].id);
+    } catch (e) {
+      console.error('Failed to load renters for maintenance modal', e);
     }
   };
 
@@ -81,8 +92,16 @@ export const MaintenancePage: React.FC = () => {
 
   const handleCreateRequest = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!unitId) {
+      alert('Please select a unit');
+      return;
+    }
+    if (!renterId) {
+      alert('Please select a renter');
+      return;
+    }
     try {
-      await maintenanceApi.create({ unitId, description, priority });
+      await maintenanceApi.create({ unitId, renterId, description, priority });
       setShowRequestModal(false);
       setDescription('');
       loadData();
@@ -96,13 +115,13 @@ export const MaintenancePage: React.FC = () => {
     try {
       await vendorApi.create({
         name: vendorName,
-        specialty: vendorSpecialty,
+        serviceType: vendorServiceType,
         phone: vendorPhone,
         email: vendorEmail,
       });
       setShowVendorModal(false);
       setVendorName('');
-      setVendorSpecialty('');
+      setVendorServiceType('');
       setVendorPhone('');
       setVendorEmail('');
       loadData();
@@ -114,6 +133,10 @@ export const MaintenancePage: React.FC = () => {
   const handleAssignVendor = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRequest) return;
+    if (!vendorId) {
+      alert('Please create a vendor first');
+      return;
+    }
     try {
       await maintenanceApi.assign(selectedRequest.id, vendorId, selectedRequest.version);
       setShowAssignModal(false);
@@ -124,9 +147,23 @@ export const MaintenancePage: React.FC = () => {
     }
   };
 
-  const handleResolve = async (req: MaintenanceRequest) => {
+  const handleStart = async (req: MaintenanceRequest) => {
     try {
-      await maintenanceApi.resolve(req.id, req.version);
+      await maintenanceApi.start(req.id, req.version);
+      loadData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to start request');
+    }
+  };
+
+  const handleResolve = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRequest) return;
+    try {
+      await maintenanceApi.resolve(selectedRequest.id, selectedRequest.version, resolveNotes);
+      setShowResolveModal(false);
+      setSelectedRequest(null);
+      setResolveNotes('');
       loadData();
     } catch (err: any) {
       alert(err.message || 'Failed to resolve request');
@@ -228,9 +265,21 @@ export const MaintenancePage: React.FC = () => {
                             Assign
                           </button>
                         )}
-                        {(req.status === 'ASSIGNED' || req.status === 'IN_PROGRESS') && (
+                        {req.status === 'ASSIGNED' && (
                           <button
-                            onClick={() => handleResolve(req)}
+                            onClick={() => handleStart(req)}
+                            className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow transition-all"
+                          >
+                            Start
+                          </button>
+                        )}
+                        {req.status === 'IN_PROGRESS' && (
+                          <button
+                            onClick={() => {
+                              setSelectedRequest(req);
+                              setResolveNotes('');
+                              setShowResolveModal(true);
+                            }}
                             className="px-3 py-1 bg-green-600 hover:bg-green-500 text-white rounded-lg text-xs font-semibold shadow transition-all"
                           >
                             Resolve
@@ -259,7 +308,7 @@ export const MaintenancePage: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <h4 className="font-bold text-sm text-slate-900">{v.name}</h4>
                     <span className="text-[10px] font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
-                      {v.specialty}
+                      {v.serviceType}
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">{v.phone} • {v.email}</p>
@@ -302,6 +351,19 @@ export const MaintenancePage: React.FC = () => {
                 >
                   {units.map((u) => (
                     <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Select Renter</label>
+                <select
+                  value={renterId}
+                  onChange={(e) => setRenterId(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600"
+                >
+                  <option value="">{renters.length === 0 ? 'No renters yet — add one on the Leases page' : 'Select a renter'}</option>
+                  {renters.map((r) => (
+                    <option key={r.id} value={r.id}>{r.fullName} ({r.email})</option>
                   ))}
                 </select>
               </div>
@@ -368,7 +430,7 @@ export const MaintenancePage: React.FC = () => {
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600"
                 >
                   {vendors.map((v) => (
-                    <option key={v.id} value={v.id}>{v.name} ({v.specialty})</option>
+                    <option key={v.id} value={v.id}>{v.name} ({v.serviceType})</option>
                   ))}
                 </select>
                 <p className="text-[11px] text-slate-400 mt-1">Sends If-Match: v{selectedRequest.version} header</p>
@@ -386,6 +448,48 @@ export const MaintenancePage: React.FC = () => {
                   className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-semibold shadow"
                 >
                   Assign Vendor
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Resolve Request Modal */}
+      {showResolveModal && selectedRequest && (
+        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-lg text-slate-900">Resolve Maintenance Request</h3>
+              <button onClick={() => setShowResolveModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleResolve} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Resolution Notes</label>
+                <textarea
+                  rows={3}
+                  value={resolveNotes}
+                  onChange={(e) => setResolveNotes(e.target.value)}
+                  placeholder="Describe how the issue was resolved..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600"
+                ></textarea>
+                <p className="text-[11px] text-slate-400 mt-1">Sends If-Match: v{selectedRequest.version} header</p>
+              </div>
+              <div className="flex justify-end space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowResolveModal(false)}
+                  className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-xl text-xs font-semibold shadow"
+                >
+                  Mark Resolved
                 </button>
               </div>
             </form>
@@ -416,12 +520,12 @@ export const MaintenancePage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Specialty</label>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Service Type</label>
                 <input
                   type="text"
                   required
-                  value={vendorSpecialty}
-                  onChange={(e) => setVendorSpecialty(e.target.value)}
+                  value={vendorServiceType}
+                  onChange={(e) => setVendorServiceType(e.target.value)}
                   placeholder="Plumbing & Heating"
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:border-blue-600"
                 />

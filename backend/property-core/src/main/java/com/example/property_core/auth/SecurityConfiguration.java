@@ -110,7 +110,8 @@ public class SecurityConfiguration {
                 .toList());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(
-                List.of("Authorization", "Content-Type", "X-Platform-Admin-Bootstrap-Token"));
+                List.of("Authorization", "Content-Type", "If-Match", "Idempotency-Key",
+                        "X-Platform-Admin-Bootstrap-Token"));
         configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

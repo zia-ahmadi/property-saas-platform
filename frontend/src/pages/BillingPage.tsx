@@ -37,8 +37,11 @@ export const BillingPage: React.FC = () => {
   const loadLeases = async () => {
     try {
       const page = await leaseApi.list(0, 50);
-      setLeases(page.content);
-      if (page.content.length > 0) setLeaseId(page.content[0].id);
+      // Invoices can only be raised against active leases.
+      const activeLeases = page.content.filter((l) => l.status === 'ACTIVE');
+      setLeases(activeLeases);
+      if (activeLeases.length > 0) setLeaseId(activeLeases[0].id);
+      else setLeaseId('');
     } catch (e) {
       console.error('Failed to load leases for invoice modal', e);
     }
@@ -267,8 +270,7 @@ export const BillingPage: React.FC = () => {
                 >
                   <option value="BANK_TRANSFER">Bank Transfer</option>
                   <option value="CREDIT_CARD">Credit Card</option>
-                  <option value="ACH">ACH</option>
-                  <option value="CHECK">Check</option>
+                  <option value="CASH">Cash</option>
                 </select>
               </div>
               <div>
