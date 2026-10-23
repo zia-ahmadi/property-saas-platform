@@ -22,6 +22,7 @@ Property Core is a Spring Boot backend service for a Property Management SaaS pl
   - `property/` - Property management
   - `unit/` - Unit management
   - `events/` - Tenant-scoped domain events published through RabbitMQ
+  - `platformadmin/` - Platform-wide organization and account administration
   - `graphql/` - GraphQL resolvers
 - `src/main/resources/db/migration/` - Flyway migrations
 - `src/main/resources/graphql/` - GraphQL schema
@@ -103,6 +104,9 @@ cd backend/property-core
 - `JWT_SECRET` - Base64-encoded JWT signing key (required, min 32 bytes)
 - `JWT_ISSUER` - JWT issuer (default: https://property-core.local)
 - `JWT_ACCESS_TOKEN_TTL_SECONDS` - Token lifetime (default: 3600)
+- `CORS_ALLOWED_ORIGINS` - Comma-separated browser origins allowed to call the API (default: http://localhost:5173)
+- `PLATFORM_ADMIN_EMAILS` - Comma-separated emails permitted for explicit platform-admin bootstrap
+- `PLATFORM_ADMIN_BOOTSTRAP_TOKEN` - Temporary 32+ character secret required by the bootstrap endpoint; remove it after bootstrap
 
 ### Configuration File
 `src/main/resources/application.properties`
@@ -169,6 +173,28 @@ root. The management UI is exposed on port `15672`.
 
 Event publication is not backed by a transactional outbox. Publishing failures
 are logged and propagated to the caller.
+
+## Platform Administration
+
+`PLATFORM_ADMIN` is separate from organization roles (`ADMIN`, `MANAGER`, and
+`TENANT`). Organization registration never grants this platform-wide role.
+The role is stored separately in `platform_admins` and is required by
+`/api/v1/platform-admin/**`; the console lists organization metadata and user
+accounts, and can change account status or an organization's user role. It does
+not expose tenant business records.
+
+To bootstrap the first platform administrator:
+1. Set `PLATFORM_ADMIN_EMAILS` to the approved account email(s).
+2. Set `PLATFORM_ADMIN_BOOTSTRAP_TOKEN` to a locally generated random value of
+   at least 32 characters. Do not commit or share this token.
+3. Register or sign in with the approved email, then call
+   `POST /api/v1/platform-admin/bootstrap` with that email in the JSON body and
+   the token in `X-Platform-Admin-Bootstrap-Token`.
+4. Remove the bootstrap token from the runtime environment and restart the
+   service. Sign out and back in so the new role is included in the JWT.
+
+The web console is at `/platform-admin`. Only a JWT containing
+`PLATFORM_ADMIN` can use its APIs; an organization `ADMIN` alone receives 403.
 
 ### GraphQL
 - `POST /graphql` - Query dashboard (tenant-scoped)

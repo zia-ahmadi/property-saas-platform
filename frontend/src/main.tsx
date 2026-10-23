@@ -9,15 +9,16 @@ import { PropertiesPage } from './pages/PropertiesPage';
 import { LeasesPage } from './pages/LeasesPage';
 import { BillingPage } from './pages/BillingPage';
 import { MaintenancePage } from './pages/MaintenancePage';
+import { PlatformAdminPage } from './pages/PlatformAdminPage';
 import './index.css';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  requiredRole?: 'ADMIN' | 'MANAGER' | 'TENANT';
+  requiredRole?: 'ADMIN' | 'MANAGER' | 'TENANT' | 'PLATFORM_ADMIN';
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole }) => {
-  const { token, isLoading, hasRole, isAdmin, isManager } = useAuth();
+  const { token, isLoading, hasRole, isAdmin, isManager, isPlatformAdmin } = useAuth();
   
   if (isLoading) {
     return (
@@ -35,7 +36,8 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole 
     const authorized = 
       (requiredRole === 'ADMIN' && isAdmin) ||
       (requiredRole === 'MANAGER' && isManager) ||
-      (requiredRole === 'TENANT' && hasRole('TENANT'));
+      (requiredRole === 'TENANT' && hasRole('TENANT')) ||
+      (requiredRole === 'PLATFORM_ADMIN' && isPlatformAdmin);
 
     if (!authorized) {
       return <Navigate to="/" />;
@@ -57,6 +59,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="leases" element={<ProtectedRoute requiredRole="MANAGER"><LeasesPage /></ProtectedRoute>} />
             <Route path="billing" element={<ProtectedRoute requiredRole="MANAGER"><BillingPage /></ProtectedRoute>} />
             <Route path="maintenance" element={<ProtectedRoute requiredRole="MANAGER"><MaintenancePage /></ProtectedRoute>} />
+            <Route path="platform-admin" element={<ProtectedRoute requiredRole="PLATFORM_ADMIN"><PlatformAdminPage /></ProtectedRoute>} />
           </Route>
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

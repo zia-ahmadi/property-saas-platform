@@ -4,17 +4,38 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080
 const GRAPHQL_URL = import.meta.env.VITE_GRAPHQL_URL || 'http://localhost:8080/graphql';
 
 export interface UserProfile {
-  id: string;
+  userId: string;
+  tenantId: string;
   email: string;
   fullName: string;
-  organizationId: string;
   roles: string[];
+}
+
+export interface PlatformOrganization {
+  id: string;
+  name: string;
+  createdAt: string;
+  userCount: number;
+  activeUserCount: number;
+}
+
+export interface PlatformUser {
+  id: string;
+  organizationId: string;
+  organizationName: string;
+  email: string;
+  fullName: string;
+  active: boolean;
+  roles: string[];
+  platformAdmin: boolean;
 }
 
 export interface TokenResponse {
   accessToken: string;
-  tokenType: string;
   expiresIn: number;
+  userId: string;
+  tenantId: string;
+  roles: string[];
 }
 
 export interface Page<T> {
@@ -134,8 +155,16 @@ apiClient.interceptors.request.use((config) => {
 
 apiClient.interceptors.response.use(
   (response) => response,
-  (error: AxiosError<{ message?: string; detail?: string; title?: string }>) => {
+  (error: AxiosError<{
+    message?: string;
+    detail?: string;
+    title?: string;
+    errors?: Array<{ field?: string; message: string }>;
+  }>) => {
     const errorMsg =
+      error.response?.data?.errors?.map(({ field, message }) =>
+        field ? `${field}: ${message}` : message
+      ).join(', ') ||
       error.response?.data?.detail ||
       error.response?.data?.message ||
       error.response?.data?.title ||
@@ -153,9 +182,9 @@ export const authApi = {
   },
   register: async (data: {
     organizationName: string;
-    adminEmail: string;
-    adminPassword: string;
-    adminFullName: string;
+    email: string;
+    password: string;
+    fullName: string;
   }): Promise<TokenResponse> => {
     const res = await apiClient.post<TokenResponse>('/auth/register', data);
     return res.data;
@@ -163,6 +192,30 @@ export const authApi = {
   getCurrentUser: async (): Promise<UserProfile> => {
     const res = await apiClient.get<UserProfile>('/auth/me');
     return res.data;
+  },
+};
+
+export const platformAdminApi = {
+  listOrganizations: async (page = 0, size = 100): Promise<Page<PlatformOrganization>> => {
+    const res = await apiClient.get<Page<PlatformOrganization>>('/platform-admin/organizations', {
+      params: { page, size },
+    });
+    return res.data;
+  },
+  renameOrganization: async (organizationId: string, name: string): Promise<void> => {
+    await apiClient.patch(`/platform-admin/organizations/${organizationId}`, { name });
+  },
+  listUsers: async (organizationId?: string, page = 0, size = 100): Promise<Page<PlatformUser>> => {
+    const res = await apiClient.get<Page<PlatformUser>>('/platform-admin/users', {
+      params: { organizationId, page, size },
+    });
+    return res.data;
+  },
+  setUserActive: async (userId: string, active: boolean): Promise<void> => {
+    await apiClient.patch(`/platform-admin/users/${userId}/active`, { active });
+  },
+  setOrganizationRole: async (userId: string, role: 'ADMIN' | 'MANAGER' | 'TENANT'): Promise<void> => {
+    await apiClient.put(`/platform-admin/users/${userId}/role`, { role });
   },
 };
 

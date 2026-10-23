@@ -11,11 +11,12 @@ import {
   LogOut, 
   User, 
   Menu,
-  X
+  X,
+  ShieldCheck
 } from 'lucide-react';
 
 export const Layout: React.FC = () => {
-  const { user, logout, isManager, isAdmin } = useAuth();
+  const { user, logout, isManager, isAdmin, isPlatformAdmin } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -53,6 +54,7 @@ export const Layout: React.FC = () => {
     { to: '/billing', label: 'Billing & Payments', icon: Receipt, roles: ['ADMIN', 'MANAGER'] },
     { to: '/maintenance', label: 'Maintenance & Vendors', icon: Wrench, roles: ['ADMIN', 'MANAGER'] },
     { to: '/notifications', label: 'Live Events', icon: Bell, roles: ['ANY'] },
+    ...(isPlatformAdmin ? [{ to: '/platform-admin', label: 'Platform Admin', icon: ShieldCheck, roles: ['PLATFORM_ADMIN'] }] : []),
   ];
 
   const filteredNavItems = navItems.filter(item => {
@@ -108,6 +110,7 @@ export const Layout: React.FC = () => {
             <div className="overflow-hidden">
               <p className="text-sm font-medium text-white truncate">{user?.fullName || 'User'}</p>
               <p className="text-xs text-slate-400 truncate">{user?.email}</p>
+              <p className="text-xs text-blue-300">{isAdmin ? 'Organization admin' : isManager ? 'Manager' : 'Tenant user'}</p>
             </div>
           </div>
           <button
@@ -132,7 +135,7 @@ export const Layout: React.FC = () => {
               {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
             <div>
-              <h2 className="text-sm font-semibold text-slate-800">Organization: <span className="font-mono text-blue-600 bg-blue-50 px-2 py-0.5 rounded text-xs">{user?.organizationId || 'Tenant'}</span></h2>
+              <h2 className="text-sm font-semibold text-slate-800">Organization: <span className="font-mono text-blue-600 bg-blue-50 px-2 py-0.5 rounded text-xs">{user?.tenantId || 'Tenant'}</span></h2>
             </div>
           </div>
 

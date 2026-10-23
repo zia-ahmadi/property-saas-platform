@@ -29,15 +29,15 @@ export const AuthPage: React.FC = () => {
       } else {
         const res = await authApi.register({
           organizationName,
-          adminEmail: email,
-          adminPassword: password,
-          adminFullName: fullName,
+          email,
+          password,
+          fullName,
         });
         await login(res.accessToken);
         navigate('/');
       }
-    } catch (err: any) {
-      setError(err.message || 'Authentication failed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Authentication failed');
     } finally {
       setLoading(false);
     }
@@ -103,6 +103,12 @@ export const AuthPage: React.FC = () => {
             </>
           )}
 
+          {!isLogin && (
+            <p className="text-xs text-blue-200 bg-blue-500/10 border border-blue-500/20 rounded-xl p-3">
+              This creates a new organization, and your account will be its administrator.
+            </p>
+          )}
+
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
               Email Address
@@ -146,7 +152,7 @@ export const AuthPage: React.FC = () => {
             disabled={loading}
             className="w-full mt-2 py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-blue-600/30 transition-all disabled:opacity-50 text-sm"
           >
-            {loading ? 'Processing...' : isLogin ? 'Sign In' : 'Create Organization'}
+            {loading ? 'Processing...' : isLogin ? 'Sign In' : 'Create Organization Admin Account'}
           </button>
 
           <div className="text-center pt-2">

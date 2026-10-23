@@ -10,6 +10,7 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
   hasRole: (role: string) => boolean;
   isAdmin: boolean;
+  isPlatformAdmin: boolean;
   isManager: boolean;
   isTenantUser: boolean;
 }
@@ -66,6 +67,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const isAdmin = hasRole('ADMIN');
+  const isPlatformAdmin = hasRole('PLATFORM_ADMIN');
   const isManager = hasRole('MANAGER') || isAdmin;
   const isTenantUser = hasRole('TENANT');
 
@@ -80,6 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         refreshUser,
         hasRole,
         isAdmin,
+        isPlatformAdmin,
         isManager,
         isTenantUser,
       }}

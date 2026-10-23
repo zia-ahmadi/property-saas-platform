@@ -43,6 +43,18 @@ public class AuthRepository {
                     .param("userId", account.id())
                     .query(String.class)
                     .list();
+            boolean platformAdmin = jdbcClient.sql("""
+                    SELECT EXISTS (
+                        SELECT 1 FROM platform_admins WHERE user_id = :userId
+                    )
+                    """)
+                    .param("userId", account.id())
+                    .query(Boolean.class)
+                    .single();
+            if (platformAdmin) {
+                roles = new java.util.ArrayList<>(roles);
+                roles.add("PLATFORM_ADMIN");
+            }
             return account.withRoles(roles);
         });
     }
@@ -89,4 +101,15 @@ public class AuthRepository {
                 .param("role", role)
                 .update();
     }
+
+    public boolean addPlatformAdminByEmail(String email) {
+        return jdbcClient.sql("""
+                INSERT INTO platform_admins (user_id)
+                SELECT id FROM users WHERE email = :email
+                ON CONFLICT (user_id) DO NOTHING
+                """)
+                .param("email", email)
+                .update() > 0;
+    }
+
 }
